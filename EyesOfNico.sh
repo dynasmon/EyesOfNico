@@ -368,9 +368,15 @@ done
 
 # SAFE MODE: substitui funções “frágeis” se tooling não existir
 if [[ "$SAFE_MODE" -eq 1 ]]; then
-  has_cmd docker     || get_docker_summary()   { echo "(SAFE) Docker desativado"; };
-  is_systemd         || get_services_summary() { echo "(SAFE) Sem systemd"; };
-  has_cmd journalctl || get_journal_tail()     { echo "(SAFE) journalctl indisponível"; };
+  if ! has_cmd docker; then
+    get_docker_summary() { echo "(SAFE) Docker desativado"; }
+  fi
+  if ! is_systemd; then
+    get_services_summary() { echo "(SAFE) Sem systemd"; }
+  fi
+  if ! has_cmd journalctl; then
+    get_journal_tail() { echo "(SAFE) journalctl indisponível"; }
+  fi
 fi
 
 main_loop
