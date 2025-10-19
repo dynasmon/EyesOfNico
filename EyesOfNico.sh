@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 # ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃  EyesOfNico — Terminal Server Monitor (Bash TUI)                    ┃
-# ┃  Theme: Neon Synthwave | Gradient borders | Full black background    ┃
+# ┃ EyesOfNico — Terminal Server Monitor (Bash TUI)                     ┃
+# ┃ Theme: Neon Synthwave | Gradient borders | Full black background    ┃
 # ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-
 set -o pipefail  # tolerant (no -e/-u)
 
 # ======================== Colors / Theme ================================
 c_supports_256() { tput colors 2>/dev/null | awk '{exit !($1>=256)}'; }
-
 # ANSI helpers
-fg256(){ printf "\e[38;5;%sm" "$1"; }  # foreground
-bg256(){ printf "\e[48;5;%sm" "$1"; }  # background
+fg256(){ printf "\e[38;5;%sm" "$1"; } # foreground
+bg256(){ printf "\e[48;5;%sm" "$1"; } # background
 RESET=$(tput sgr0 2>/dev/null || printf "\e[0m")
 BOLD=$(tput bold 2>/dev/null || printf "\e[1m")
 DIM=$(tput dim 2>/dev/null || printf "\e[2m")
@@ -21,13 +19,18 @@ CURSOR_SHOW(){ tput cnorm 2>/dev/null || true; }
 
 # Synthwave palette (magenta → purple → blue)
 if c_supports_256; then
-  COL_MAG=199   # neon magenta
-  COL_PUR=129   # neon purple
-  COL_BLU=33    # neon blue
-  COL_TITLE=15  # bright white
+  COL_MAG=199  # neon magenta
+  COL_PUR=129  # neon purple
+  COL_BLU=33   # neon blue
+  COL_TITLE=15 # bright white
 else
   COL_MAG=5; COL_PUR=5; COL_BLU=4; COL_TITLE=7
 fi
+# Status colors
+COL_OK=46      # green
+COL_BAD=196    # red
+COL_DIV=240    # divider gray
+COL_EMPTY=240
 
 BG_BLACK="$(bg256 0)"
 FG_TITLE="$(fg256 $COL_TITLE)$BOLD"
@@ -35,12 +38,16 @@ FG_DIM="$(fg256 245)$DIM"
 
 # ======================== Config =======================================
 REFRESH="1"
-VIEW="dashboard"     # dashboard | single
-SINGLE=""            # logins/cmds/net/services/docker/journal/help
+VIEW="dashboard"  # dashboard | single
+SINGLE=""         # logins/cmds/net/services/docker/journal/help/sys
 STOP=false
 SAFE_MODE=0
 NO_ALT_SCREEN=0
 PAUSED=0
+
+# Thresholds
+CPU_WARN=70  # ≥ => vermelho
+MEM_WARN=75  # ≥ => vermelho
 
 # ======================== Environment ==================================
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
@@ -80,32 +87,31 @@ clear_alt() {
     printf "\033[2J\033[H"
   fi
 }
-
 restore_screen() {
-  if [[ -t 1 && "${NO_ALT_SCREEN}" != "1" ]]; then tput rmcup 2>/dev/null || true; fi
+  if [[ -t 1 && "${NO_ALT_SCREEN}" != "1" ]]; then
+    tput rmcup 2>/dev/null || true;
+  fi
   CURSOR_SHOW
   printf "%s" "$RESET"
 }
-
 wipe_screen() { printf "%s\033[2J\033[H" "$BG_BLACK"; }
 
-# ── FIXED: fully-colored header (no white corners) ──────────────────────
+cuf() { printf "\033[%dC" "${1:-1}"; }   # move cursor para a direita
+cub() { printf "\033[%dD" "${1:-1}"; }   # move cursor para a esquerda
+
+# ── Header com gradiente ────────────────────────────────────────────────
 header() {
   local title=" EyesOfNico — Neon Synthwave "
   local line_len=$((cols-2))
-
-  # top gradient
   tput cup 0 0
   printf "%s" "$BG_BLACK"
   printf "%s┏" "$(fg256 $COL_MAG)"
   for ((i=0;i<line_len;i++)); do printf "%s━" "$(grad_color_at "$i" "$line_len")"; done
   printf "%s┓%s\n" "$(fg256 $COL_BLU)" "$RESET"
 
-  # title row
   tput cup 1 2; printf "%s%s%s" "$FG_TITLE" "$title" "$RESET"
   tput cup 1 $((cols-38)); printf "%s%s | Refresh: %ss%s" "$FG_DIM" "$(date '+%F %T')" "$REFRESH" "$RESET"
 
-  # bottom gradient
   tput cup 2 0
   printf "%s" "$BG_BLACK"
   printf "%s┗" "$(fg256 $COL_MAG)"
@@ -113,50 +119,44 @@ header() {
   printf "%s┛%s" "$(fg256 $COL_BLU)" "$RESET"
 }
 
-# ── FIXED: gradient box with colored sides (no white stripes) ───────────
+# ── Box com gradiente nos lados ─────────────────────────────────────────
 box() {
   local y=$1 x=$2 h=$3 w=$4 title="$5"
   ((h<3||w<10)) && return
   local inner=$((w-2))
-
-  # top
-  tput cup "$y" "$x"
-  printf "%s" "$BG_BLACK"
+  # topo
+  tput cup "$y" "$x"; printf "%s" "$BG_BLACK"
   printf "%s┏" "$(fg256 $COL_MAG)"
   for ((i=0;i<inner;i++)); do printf "%s━" "$(grad_color_at "$i" "$inner")"; done
   printf "%s┓%s" "$(fg256 $COL_BLU)" "$RESET"
-
-  # title
+  # título
   if [[ -n "$title" ]]; then
     tput cup "$y" $((x+2)); printf "%s%s%s" "$FG_TITLE" "$title" "$RESET"
   fi
-
-  # sides
+  # laterais
   for ((i=1;i<h-1;i++)); do
-    tput cup $((y+i)) "$x";       printf "%s%s┃%s" "$BG_BLACK" "$(fg256 $COL_MAG)" "$RESET"
-    tput cup $((y+i)) $((x+w-1)); printf "%s%s┃%s" "$BG_BLACK" "$(fg256 $COL_BLU)" "$RESET"
+    tput cup $((y+i)) "$x";         printf "%s%s┃%s" "$BG_BLACK" "$(fg256 $COL_MAG)" "$RESET"
+    tput cup $((y+i)) $((x+w-1));   printf "%s%s┃%s" "$BG_BLACK" "$(fg256 $COL_BLU)" "$RESET"
   done
-
-  # bottom
-  tput cup $((y+h-1)) "$x"
-  printf "%s" "$BG_BLACK"
+  # base
+  tput cup $((y+h-1)) "$x"; printf "%s" "$BG_BLACK"
   printf "%s┗" "$(fg256 $COL_MAG)"
   for ((i=0;i<inner;i++)); do printf "%s━" "$(grad_color_at "$i" "$inner")"; done
   printf "%s┛%s" "$(fg256 $COL_BLU)" "$RESET"
 }
 
-# Keybars (keep them defined!):
+# Keybars
 keybar_dash() {
   tput cup $((rows-1)) 0
-  printf "%s[D]ashboard  [L]ogins  [C]mds  [N]et  [S]ervices  [K]Docker  [J]ournal  [H]elp  [P]ause  [Q]uit  (paused=%s)%s" \
+  printf "%s[D]ashboard [Y]Sys+ [L]ogins [C]mds [N]et [S]ervices [K]Docker [J]ournal [H]elp [P]ause [Q]uit (paused=%s)%s" \
     "$FG_DIM" "$PAUSED" "$RESET"
 }
 keybar_single() {
   tput cup $((rows-1)) 0
-  printf "%s[D]ashboard  [Q]uit%s" "$FG_DIM" "$RESET"
+  printf "%s[D]ashboard [Q]uit%s" "$FG_DIM" "$RESET"
 }
 
-# print_in_box y x h w
+# print helpers
 print_in_box() {
   local y=$1 x=$2 h=$3 w=$4
   local max_lines=$((h-2)); ((max_lines<=0)) && return
@@ -172,17 +172,9 @@ print_in_box() {
     tput cup $((y+1+i)) $((x+1)); printf "%s%-*s%s" "$BG_BLACK" "$width" "${out:0:$width}" "$RESET"
   done
 }
+render_in_box() { local y=$1 x=$2 h=$3 w=$4; shift 4; local tmp; tmp=$(mktemp); "$@" > "$tmp"; print_in_box "$y" "$x" "$h" "$w" < "$tmp"; rm -f "$tmp"; }
 
-# run a function and then print its buffered output into the box
-render_in_box() {
-  local y=$1 x=$2 h=$3 w=$4; shift 4
-  local tmp; tmp=$(mktemp)
-  "$@" > "$tmp"
-  print_in_box "$y" "$x" "$h" "$w" < "$tmp"
-  rm -f "$tmp"
-}
-
-# Read a single key (ignore escape sequences)
+# read key
 read_key() {
   local k k1 k2; key=""
   IFS= read -rsn1 -t "$REFRESH" k || { key=""; return; }
@@ -209,9 +201,17 @@ get_cpu_usage() {
   local dt=$((total_b-total_a)) di=$((idle_b-idle_a))
   [[ $dt -gt 0 ]] && awk -v dt=$dt -v di=$di 'BEGIN{ printf "%.1f", 100*(1 - di/dt) }' || echo "N/A"
 }
-get_mem() { awk '/MemTotal:/{t=$2}/MemAvailable:/{a=$2}END{if(t>0) printf "%.1f/%.1f GB (%.0f%%)", (t-a)/1048576, t/1048576, 100*(t-a)/t}' /proc/meminfo 2>/dev/null || echo "N/A"; }
-get_disks() { df -h --output=source,pcent,size,used,avail,target -x tmpfs -x devtmpfs 2>/dev/null | sed 1d | head -n 8; }
-get_top()   { ps -eo pid,comm,%cpu,%mem --sort=-%cpu 2>/dev/null | head -n 15; }
+get_mem() {
+  awk '/MemTotal:/{t=$2}/MemAvailable:/{a=$2}END{if(t>0) printf "%.1f/%.1f GB (%.0f%%)", (t-a)/1048576, t/1048576, 100*(t-a)/t}' /proc/meminfo 2>/dev/null || echo "N/A";
+}
+get_mem_pct() {
+  awk '/MemTotal:/{t=$2}/MemAvailable:/{a=$2}END{if(t>0) printf "%.0f", 100*(t-a)/t; else print 0}' /proc/meminfo 2>/dev/null || echo 0
+}
+get_disks() {
+  df -h --output=source,pcent,size,used,avail,target -x tmpfs -x devtmpfs 2>/dev/null | sed 1d | head -n 8;
+}
+get_top_cpu() { ps -eo pid,comm,%cpu,%mem --sort=-%cpu 2>/dev/null | head -n 20; }
+get_top_mem() { ps -eo pid,comm,%cpu,%mem --sort=-%mem 2>/dev/null | head -n 20; }
 
 # ===================== Dashboard NET: per-interface throughput ==========
 declare -A NET_LAST_RX NET_LAST_TX
@@ -220,8 +220,7 @@ net_now_ns() { date +%s%N; }
 net_snapshot_ifaces() {
   local ifn rx tx
   for d in /sys/class/net/*; do
-    ifn=$(basename "$d")
-    [[ "$ifn" == "lo" ]] && continue
+    ifn=$(basename "$d"); [[ "$ifn" == "lo" ]] && continue
     rx=$(cat "$d/statistics/rx_bytes" 2>/dev/null || echo 0)
     tx=$(cat "$d/statistics/tx_bytes" 2>/dev/null || echo 0)
     printf "%s:%s:%s\n" "$ifn" "$rx" "$tx"
@@ -233,27 +232,19 @@ fmt_rate_bytes() {
     printf "%s/s" "$(numfmt --to=iec "$bps" 2>/dev/null)"
   else
     if (( bps < 1024 )); then printf "%d B/s" "$bps"
-    else
-      awk -v x="$bps" 'BEGIN{
-        s="KMGTPE"; i=0; while (x>=1024 && i<length(s)) {x/=1024; i++}
-        printf "%.1f %cB/s", x, substr(s,i,1)
-      }'
+    else awk -v x="$bps" 'BEGIN{ s="KMGTPE"; i=0; while (x>=1024 && i<length(s)) {x/=1024; i++} printf "%.1f %cB/s", x, substr(s,i,1) }'
     fi
   fi
 }
 get_net_throughput_table() {
-  local now_ns=$(net_now_ns)
-  local dt_ns=$(( now_ns - NET_LAST_T_NS ))
-  local have_baseline=1
+  local now_ns=$(net_now_ns) dt_ns=$(( now_ns - NET_LAST_T_NS )) have_baseline=1
   (( NET_LAST_T_NS == 0 )) && have_baseline=0
-
   local lines=() line ifn rx tx last_rx last_tx dr dt rxps txps
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     IFS=: read -r ifn rx tx <<<"$line"
     if (( have_baseline == 1 )); then
-      last_rx=${NET_LAST_RX[$ifn]:-0}
-      last_tx=${NET_LAST_TX[$ifn]:-0}
+      last_rx=${NET_LAST_RX[$ifn]:-0}; last_tx=${NET_LAST_TX[$ifn]:-0}
       dr=$(( rx - last_rx )); (( dr < 0 )) && dr=0
       dt=$(( tx - last_tx )); (( dt < 0 )) && dt=0
       rxps=$(awk -v d="$dr" -v ns="$dt_ns" 'BEGIN{ if(ns<=0) ns=1; printf "%.0f", d/(ns/1e9) }')
@@ -263,14 +254,9 @@ get_net_throughput_table() {
     NET_LAST_RX[$ifn]="$rx"
     NET_LAST_TX[$ifn]="$tx"
   done < <(net_snapshot_ifaces)
-
   NET_LAST_T_NS="$now_ns"
-
-  printf "IFACE       RX/s         TX/s\n"
-  if (( have_baseline == 0 )); then
-    printf "(collecting baseline...)\n"
-    return
-  fi
+  printf "IFACE      RX/s         TX/s\n"
+  if (( have_baseline == 0 )); then printf "(collecting baseline...)\n"; return; fi
   printf "%s\n" "${lines[@]}" | sort -k2nr
 }
 
@@ -279,7 +265,6 @@ NET_LAST_RX=0; NET_LAST_TX=0; NET_LAST_T=0
 NET_HIST_RX=(); NET_HIST_TX=()
 NET_MAXPTS=60
 NET_PEAK_RX=0; NET_PEAK_TX=0
-
 arr_last() { local -n A=$1; local n=${#A[@]}; if ((n>0)); then printf "%s" "${A[n-1]}"; else printf "0"; fi; }
 net_now_bytes() {
   local sum_rx=0 sum_tx=0 v
@@ -292,10 +277,8 @@ net_now_bytes() {
 }
 net_human() {
   local b=$1
-  if has_cmd numfmt; then numfmt --to=iec "$b" 2>/dev/null || echo "$b"; else
-    awk -v b="$b" 'function f(x){if (x<1024){printf "%.0f B/s",x; exit}
-      s="KMGTPE"; i=0; while (x>=1024 && i<length(s)) {x/=1024; i++}
-      printf "%.1f %cB/s", x, substr(s,i,1)} BEGIN{f(b)}'
+  if has_cmd numfmt; then numfmt --to=iec "$b" 2>/dev/null || echo "$b";
+  else awk -v b="$b" 'function f(x){if (x<1024){printf "%.0f B/s",x; exit} s="KMGTPE"; i=0; while (x>=1024 && i<length(s)) {x/=1024; i++} printf "%.1f %cB/s", x, substr(s,i,1)} BEGIN{f(b)}'
   fi
 }
 net_init_chart() {
@@ -332,11 +315,9 @@ net_draw_graph_text() {
   local axis_margin=12
   local chart_w=$(( inner_w - axis_margin ))
   ((chart_w<10)) && chart_w=10
-
   local max=1 v
   for v in "${NET_HIST_RX[@]}" "${NET_HIST_TX[@]}"; do ((v>max)) && max=$v; done
   local chars=(" " "▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
-
   build_panel() {
     local -n hist=$1; local height=$2; local title="$3"
     local -a rows=(); local i
@@ -345,15 +326,11 @@ net_draw_graph_text() {
     tick_rows=(0 $((height*1/4)) $((height*2/4)) $((height*3/4)) $((height-1)))
     tick_vals=("$max" $((max*75/100)) $((max*50/100)) $((max*25/100)) 0)
     for ((i=0;i<height;i++)); do
-      local label=""
-      local t
-      for t in 0 1 2 3 4; do
-        if (( i == tick_rows[t] )); then label=$(net_human "${tick_vals[t]}"); break; fi
-      done
+      local label="" local t
+      for t in 0 1 2 3 4; do if (( i == tick_rows[t] )); then label=$(net_human "${tick_vals[t]}"); break; fi; done
       printf -v left "%-*s" $((axis_margin-1)) "${label}"
       rows[i]="${left}│$(printf "%-${chart_w}s" "")"
     done
-
     local len=${#hist[@]}
     if ((len>0)); then
       local start=$((len - chart_w)); ((start<0)) && start=0
@@ -361,18 +338,13 @@ net_draw_graph_text() {
       for ((idx=start; idx<len; idx++)); do
         local val=${hist[idx]:-0}; local level=0
         if ((max>0)); then
-          level=$(awk -v v="$val" -v m="$max" -v H="$height" 'BEGIN{
-            x=v/m*H; if (x<0) x=0; if (x>H) x=H; printf "%d",(x<1 && v>0)?1:int(x)
-          }')
+          level=$(awk -v v="$val" -v m="$max" -v H="$height" 'BEGIN{ x=v/m*H; if (x<0) x=0; if (x>H) x=H; printf "%d",(x<1 && v>0)?1:int(x) }')
         fi
         ((col>=chart_w)) && break
         local r
         for ((r=0; r<height; r++)); do
           local ch=" "
-          if ((r < level)); then
-            local step=$(( (r*8)/height )); ((step>8)) && step=8
-            ch=${chars[step]}
-          fi
+          if ((r < level)); then local step=$(( (r*8)/height )); ((step>8)) && step=8; ch=${chars[step]}; fi
           local row_index=$((height-1-r))
           local line="${rows[row_index]}"; local pos=$((axis_margin + 1 + col))
           rows[row_index]="${line:0:pos}${ch}${line:pos+1}"
@@ -380,19 +352,16 @@ net_draw_graph_text() {
         ((col++))
       done
     fi
-    printf "%s\n" " ${title}  scale: window max $(net_human "$max") | points: ${#hist[@]}"
+    printf "%s\n" " ${title} scale: window max $(net_human "$max") | points: ${#hist[@]}"
     printf "%s\n" "${rows[@]}"
   }
-
   {
-    local cur_rx cur_tx
-    cur_rx=$(arr_last NET_HIST_RX); cur_tx=$(arr_last NET_HIST_TX)
-    printf " RX: %s  (peak %s)   TX: %s  (peak %s)\n" \
+    local cur_rx cur_tx; cur_rx=$(arr_last NET_HIST_RX); cur_tx=$(arr_last NET_HIST_TX)
+    printf " RX: %s (peak %s)  TX: %s (peak %s)\n" \
       "$(net_human "$cur_rx")" "$(net_human "$NET_PEAK_RX")" \
       "$(net_human "$cur_tx")" "$(net_human "$NET_PEAK_TX")"
     build_panel NET_HIST_RX "$half" "RX"
     build_panel NET_HIST_TX "$half" "TX"
-
     printf "\nTop IFs (instant):\n"
     local snap1=() snap2=() ifs=() ifn rx1 tx1 rx2 tx2
     for d in /sys/class/net/*; do
@@ -442,7 +411,7 @@ _parse_bash_history() {
       ts="${BASH_REMATCH[1]}"
     else
       if [[ -n "$ts" ]]; then
-        date -d "@$ts" '+%F %T' 2>/dev/null | awk -v cmd="$line" '{printf "%s  %s\n",$0,cmd}'
+        date -d "@$ts" '+%F %T' 2>/dev/null | awk -v cmd="$line" '{printf "%s %s\n",$0,cmd}'
         ts=""
       else
         printf "%s\n" "$line"
@@ -450,90 +419,79 @@ _parse_bash_history() {
     fi
   done < "$file"
 }
+
 _parse_zsh_history() {
   local file="$1" line ts cmd
   [[ -r "$file" ]] || return 1
   while IFS= read -r line; do
     if [[ "$line" =~ ^:[\ \t]*([0-9]{9,})\:[0-9]+\;(.*)$ ]]; then
       ts="${BASH_REMATCH[1]}"; cmd="${BASH_REMATCH[2]}"
-      date -d "@$ts" '+%F %T' 2>/dev/null | awk -v cmd="$cmd" '{printf "%s  %s\n",$0,cmd}'
+      date -d "@$ts" '+%F %T' 2>/dev/null | awk -v cmd="$cmd" '{printf "%s %s\n",$0,cmd}'
     elif [[ -n "$line" ]]; then
       printf "%s\n" "$line"
     fi
   done < "$file"
 }
+
 _parse_fish_history() {
   local file="$1" line cmd when
   [[ -r "$file" ]] || return 1
   while IFS= read -r line; do
     if [[ "$line" =~ ^[\ \t]*-\ cmd:\ (.*)$ ]]; then
-      cmd="${BASHREMATCH[1]}"
+      cmd="${BASH_REMATCH[1]}"
       cmd="${cmd%$'\r'}"
       IFS= read -r line || true
       if [[ "$line" =~ ^[\ \t]*when:\ ([0-9]{9,})$ ]]; then
         when="${BASH_REMATCH[1]}"
-        date -d "@$when" '+%F %T' 2>/dev/null | awk -v cmd="$cmd" '{printf "%s  %s\n",$0,cmd}'
+        date -d "@$when" '+%F %T' 2>/dev/null | awk -v cmd="$cmd" '{printf "%s %s\n",$0,cmd}'
       else
         printf "%s\n" "$cmd"
       fi
     fi
   done < "$file"
 }
+
 get_recent_cmds() {
   if command -v ausearch >/dev/null 2>&1 && [[ -r /var/log/audit/audit.log ]]; then
     ausearch -k cmdlog --start recent 2>/dev/null \
-      | awk -F ' exe=| comm=| cwd=' '
-          /type=EXECVE/ || / comm=| exe=| cwd=/ {
-            exe=""; comm=""; cwd="";
-            for (i=1;i<=NF;i++){
-              if ($i ~ /^\/.*$/ && $(i-1) ~ /exe=$/) exe=$i
-              if ($(i) ~ /^[^ ]+$/ && $(i-1) ~ /comm=$/) comm=$i
-              if ($i ~ /^\/.*$/ && $(i-1) ~ /cwd=$/) cwd=$i
-            }
-            if (comm!="" || exe!="") printf "%-20s  exe=%s  cwd=%s\n", comm, exe, cwd
-          }' \
-      | tail -n 60
+    | awk -F ' exe=| comm=| cwd=' ' /type=EXECVE/ || / comm=| exe=| cwd=/ {
+        exe=""; comm=""; cwd="";
+        for (i=1;i<=NF;i++){
+          if ($i ~ /^\/.*$/ && $(i-1) ~ /exe=$/) exe=$i
+          if ($(i) ~ /^[^ ]+$/ && $(i-1) ~ /comm=$/) comm=$i
+          if ($i ~ /^\/.*$/ && $(i-1) ~ /cwd=$/) cwd=$i
+        }
+        if (comm!="" || exe!="") printf "%-20s exe=%s cwd=%s\n", comm, exe, cwd
+      }' \
+    | tail -n 60
     [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0
   fi
-  if command -v lastcomm >/dev/null 2>&1; then
+  if command -v lastcomm >/dev/null 2.1; then
     lastcomm 2>/dev/null | head -n 60
     [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0
   fi
   local H="$HOME/.bash_history"
-  if [[ -r "$H" ]]; then
-    _parse_bash_history "$H" | tail -n 60
-    [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0
-  fi
+  if [[ -r "$H" ]]; then _parse_bash_history "$H" | tail -n 60; [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0; fi
   local Z="$HOME/.zsh_history"
-  if [[ -r "$Z" ]]; then
-    _parse_zsh_history "$Z" | tail -n 60
-    [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0
-  fi
+  if [[ -r "$Z" ]]; then _parse_zsh_history "$Z" | tail -n 60; [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0; fi
   local F="$HOME/.local/share/fish/fish_history"
-  if [[ -r "$F" ]]; then
-    _parse_fish_history "$F" | tail -n 60
-    [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0
-  fi
+  if [[ -r "$F" ]]; then _parse_fish_history "$F" | tail -n 60; [[ ${PIPESTATUS[0]} -eq 0 ]] && return 0; fi
   cat <<'MSG'
-No command history available.
-Enable one of the options below and this box will fill automatically:
-
+No command history available. Enable one of the options below and this box will fill automatically:
 • auditd (recommended – with args/UID):
-    sudo apt install -y auditd audispd-plugins
-    sudo tee /etc/audit/rules.d/99-cmdlog.rules >/dev/null <<'EOF'
+  sudo apt install -y auditd audispd-plugins
+  sudo tee /etc/audit/rules.d/99-cmdlog.rules >/dev/null <<'EOF'
 -a always,exit -F arch=b64 -S execve -F auid>=1000 -F auid!=4294967295 -k cmdlog
 -a always,exit -F arch=b32 -S execve -F auid>=1000 -F auid!=4294967295 -k cmdlog
 EOF
-    sudo augenrules --load || sudo systemctl restart auditd
-
+  sudo augenrules --load || sudo systemctl restart auditd
 • psacct/acct (lightweight):
-    sudo apt install -y acct
-    sudo systemctl enable --now acct
-
+  sudo apt install -y acct
+  sudo systemctl enable --now acct
 • Interactive shell history:
-    # bash: export HISTTIMEFORMAT='%F %T ' and write-on-prompt
-    # zsh : ~/.zsh_history (': EPOCH:FLAGS;CMD')
-    # fish: ~/.local/share/fish/fish_history
+  # bash: export HISTTIMEFORMAT='%F %T ' and write-on-prompt
+  # zsh : ~/.zsh_history (': EPOCH:FLAGS;CMD')
+  # fish: ~/.local/share/fish/fish_history
 MSG
 }
 
@@ -553,6 +511,107 @@ get_journal_tail() {
   journalctl -n 80 --no-pager 2>/dev/null
 }
 
+# ======================== SYS: barras coloridas =========================
+# Retorna cor verde/vermelha conforme threshold
+color_for_value() {
+  local val=$1 warn=$2
+  if (( ${val%%.*} >= warn )); then fg256 $COL_BAD; else fg256 $COL_OK; fi
+}
+
+# Barra com FUNDO CINZA (100%) e preenchimento progressivo 1/8 por célula
+# Sem movimentos de cursor e com pouquíssimos códigos ANSI (compatível com print_in_box)
+draw_bar() {
+  local label="$1" pct="$2" width="$3" warn="$4" suffix="$5"
+  ((width<10)) && width=10
+
+  # normaliza %
+  local p=${pct%%.*}; ((p<0)) && p=0; ((p>100)) && p=100
+
+  # passos fracionários (cada célula = 8 passos)
+  local total_steps=$(( width * 8 ))
+  local filled_steps=$(( (p * total_steps + 50) / 100 ))  # arredonda
+  ((filled_steps<0)) && filled_steps=0
+  ((filled_steps>total_steps)) && filled_steps=$total_steps
+  local full_cells=$(( filled_steps / 8 ))
+  local rem_steps=$(( filled_steps % 8 ))
+  local used_cells=$full_cells; ((rem_steps>0)) && used_cells=$((used_cells+1))
+  local empty_cells=$(( width - used_cells ))
+
+  # frações 0..7
+  local FRACS=(" " "▏" "▎" "▍" "▌" "▋" "▊" "▉")
+
+  # monta strings (sem ANSI por caractere)
+  local filled_str="" empty_str=""
+  local i
+  for ((i=0;i<full_cells;i++)); do filled_str+="█"; done
+  ((rem_steps>0)) && filled_str+="${FRACS[$rem_steps]}"
+  for ((i=0;i<empty_cells;i++)); do empty_str+="░"; done
+
+  # cabeçalho da métrica
+  local col_val; col_val=$(color_for_value "$p" "$warn")
+  printf "%s%-8s%s " "$BOLD" "$label" "$RESET"
+  printf "%s%3d%%%s" "$col_val" "$p" "$RESET"
+  [[ -n "$suffix" ]] && printf " %s" "$suffix"
+  printf "\n  "
+
+  # barra final: [ <verde/vermelho>filled </reset><cinza>empty</reset> ]
+  printf "["
+  printf "%s%s%s" "$col_val" "$filled_str" "$RESET"
+  printf "%s%s%s" "$(fg256 $COL_EMPTY)" "$empty_str" "$RESET"
+  printf "]\n"
+}
+
+# Função que imprime o conteúdo da SYS box (dashboard)
+print_sys_summary() {
+  local cpu mem_line mem_pct
+  cpu=$(get_cpu_usage)
+  mem_line=$(get_mem)
+  mem_pct=$(get_mem_pct)
+  local cpu_int=$(printf "%.0f" "${cpu%.*}.${cpu#*.}" 2>/dev/null || echo 0)
+
+  # CPU
+  draw_bar "CPU" "$cpu_int" 28 "$CPU_WARN" "(load: $(get_loadavg))"
+
+  # divisor (não segue a cor do layout — cinza discreto)
+  local d=""; for ((i=0;i<34;i++)); do d+="─"; done
+  printf "%s%s%s\n" "$(fg256 $COL_DIV)" "$d" "$RESET"
+
+  # MEM
+  draw_bar "MEM" "$mem_pct" 28 "$MEM_WARN" "($mem_line)"
+
+  # Uptime
+  printf "\n%sUptime:%s %s\n" "$FG_DIM" "$RESET" "$(get_uptime)"
+}
+
+# Função que imprime a visão expandida do SYS
+print_sys_fullscreen() {
+  local cpu mem_line mem_pct
+  cpu=$(get_cpu_usage)
+  mem_line=$(get_mem)
+  mem_pct=$(get_mem_pct)
+  local cpu_int=$(printf "%.0f" "${cpu%.*}.${cpu#*.}" 2>/dev/null || echo 0)
+
+  # Barras maiores
+  draw_bar "CPU" "$cpu_int" 50 "$CPU_WARN" "(load: $(get_loadavg))"
+  local d=""; for ((i=0;i<64;i++)); do d+="─"; done
+  printf "%s%s%s\n" "$(fg256 $COL_DIV)" "$d" "$RESET"
+  draw_bar "MEM" "$mem_pct" 50 "$MEM_WARN" "($mem_line)"
+  printf "%s%s%s\n" "$(fg256 $COL_DIV)" "$d" "$RESET"
+  printf "%sUptime:%s %s\n\n" "$FG_DIM" "$RESET" "$(get_uptime)"
+
+  # Tabelas lado a lado: Top CPU | Top MEM
+  # Calcula largura simples
+  local W=$((cols-6)); ((W<40)) && W=40
+  local half=$((W/2))
+  # Cabeçalhos
+  printf "%s%-*s%s  %s%-*s%s\n" "$BOLD" "$half" "Top CPU (pid/comm/%cpu/%mem)" "$RESET" "$BOLD" "$half" "Top MEM (pid/comm/%cpu/%mem)" "$RESET"
+  # Linhas
+  paste <(get_top_cpu) <(get_top_mem) | while IFS=$'\t' read -r left right; do
+    # Em alguns shells paste usa \t; garantimos largura fixa
+    printf "%-*.*s  %-*.*s\n" "$half" "$half" "${left:0:$half}" "$half" "$half" "${right:0:$half}"
+  done
+}
+
 # ======================== Dashboard ====================================
 draw_dashboard_frame() {
   wipe_screen; update_term_size; header
@@ -562,26 +621,36 @@ draw_dashboard_frame() {
   local y1=$((y0+h0)); local h1=$((rows/3)); ((h1<6)) && h1=6
   local y2=$((y1+h1)); local h2=$((rows - y2 - 2)); ((h2<5)) && h2=5
 
-  box "$y0" "$x1" "$h0" "$w"  " SYS "
-  box "$y0" "$x2" "$h0" "$w"  " DISKS "
-  box "$y0" "$x3" "$h0" "$w"  " NET "
-  box "$y1" "$x1" "$h1" "$w"  " TOP PROCS "
-  box "$y1" "$x2" "$h1" "$w"  " LOGINS (hist) "
-  box "$y1" "$x3" "$h1" "$w"  " CMDS (hist) "
-  box "$y2" "$x1" "$h2" "$w"  " SERVICES "
-  box "$y2" "$x2" "$h2" "$w"  " DOCKER "
-  box "$y2" "$x3" "$h2" "$w"  " JOURNAL "
+  box "$y0" "$x1" "$h0" "$w" " SYS "
+  box "$y0" "$x2" "$h0" "$w" " DISKS "
+  box "$y0" "$x3" "$h0" "$w" " NET "
 
-  { printf "CPU: %s%%   Load: %s   Mem: %s   Uptime: %s\n" "$(get_cpu_usage)" "$(get_loadavg)" "$(get_mem)" "$(get_uptime)"; } \
-    | print_in_box "$y0" "$x1" "$h0" "$w"
-  { get_disks; }             | print_in_box "$y0" "$x2" "$h0" "$w"
+  box "$y1" "$x1" "$h1" "$w" " TOP PROCS "
+  box "$y1" "$x2" "$h1" "$w" " LOGINS (hist) "
+  box "$y1" "$x3" "$h1" "$w" " CMDS (hist) "
+
+  box "$y2" "$x1" "$h2" "$w" " SERVICES "
+  box "$y2" "$x2" "$h2" "$w" " DOCKER "
+  box "$y2" "$x3" "$h2" "$w" " JOURNAL "
+
+  # SYS (nova renderização bonita)
+  render_in_box "$y0" "$x1" "$h0" "$w" print_sys_summary
+  # DISKS
+  { get_disks; } | print_in_box "$y0" "$x2" "$h0" "$w"
+  # NET
   render_in_box "$y0" "$x3" "$h0" "$w" get_net_throughput_table
-  { get_top; }               | print_in_box "$y1" "$x1" "$h1" "$w"
-  { get_recent_logins; }     | print_in_box "$y1" "$x2" "$h1" "$w"
-  { get_recent_cmds; }       | print_in_box "$y1" "$x3" "$h1" "$w"
-  { get_services_summary; }  | print_in_box "$y2" "$x1" "$h2" "$w"
-  { get_docker_summary; }    | print_in_box "$y2" "$x2" "$h2" "$w"
-  { get_journal_tail; }      | print_in_box "$y2" "$x3" "$h2" "$w"
+  # TOP procs (por CPU)
+  { get_top_cpu; } | print_in_box "$y1" "$x1" "$h1" "$w"
+  # LOGINS
+  { get_recent_logins; } | print_in_box "$y1" "$x2" "$h1" "$w"
+  # CMDS
+  { get_recent_cmds; } | print_in_box "$y1" "$x3" "$h1" "$w"
+  # SERVICES
+  { get_services_summary; } | print_in_box "$y2" "$x1" "$h2" "$w"
+  # DOCKER
+  { get_docker_summary; } | print_in_box "$y2" "$x2" "$h2" "$w"
+  # JOURNAL
+  { get_journal_tail; } | print_in_box "$y2" "$x3" "$h2" "$w"
 
   keybar_dash
 }
@@ -593,15 +662,15 @@ update_dashboard() {
   local y1=$((y0+h0)); local h1=$((rows/3)); ((h1<6)) && h1=6
   local y2=$((y1+h1)); local h2=$((rows - y2 - 2)); ((h2<5)) && h2=5
 
-  { printf "CPU: %s%%   Load: %s   Mem: %s   Uptime: %s\n" "$(get_cpu_usage)" "$(get_loadavg)" "$(get_mem)" "$(get_uptime)"; } \
-    | print_in_box "$y0" "$x1" "$h0" "$w"
+  render_in_box "$y0" "$x1" "$h0" "$w" print_sys_summary
   render_in_box "$y0" "$x3" "$h0" "$w" get_net_throughput_table
-  { get_top; }               | print_in_box "$y1" "$x1" "$h1" "$w"
-  { get_recent_logins; }     | print_in_box "$y1" "$x2" "$h1" "$w"
-  { get_recent_cmds; }       | print_in_box "$y1" "$x3" "$h1" "$w"
-  { get_services_summary; }  | print_in_box "$y2" "$x1" "$h2" "$w"
-  { get_docker_summary; }    | print_in_box "$y2" "$x2" "$h2" "$w"
-  { get_journal_tail; }      | print_in_box "$y2" "$x3" "$h2" "$w"
+  { get_top_cpu; } | print_in_box "$y1" "$x1" "$h1" "$w"
+  { get_recent_logins; } | print_in_box "$y1" "$x2" "$h1" "$w"
+  { get_recent_cmds; } | print_in_box "$y1" "$x3" "$h1" "$w"
+  { get_services_summary; } | print_in_box "$y2" "$x1" "$h2" "$w"
+  { get_docker_summary; } | print_in_box "$y2" "$x2" "$h2" "$w"
+  { get_journal_tail; } | print_in_box "$y2" "$x3" "$h2" "$w"
+
   keybar_dash
 }
 
@@ -621,6 +690,8 @@ single_update() {
   if [[ "$SINGLE" == "net" ]]; then
     net_sample_bps
     net_draw_graph_text | print_in_box "$SV_y" "$SV_x" "$SV_h" "$SV_w"
+  elif [[ "$SINGLE" == "sys" ]]; then
+    print_sys_fullscreen | print_in_box "$SV_y" "$SV_x" "$SV_h" "$SV_w"
   else
     { "$SV_fn"; } | print_in_box "$SV_y" "$SV_x" "$SV_h" "$SV_w"
   fi
@@ -629,18 +700,22 @@ single_update() {
 
 # ======================== HELP (content) ================================
 help_text() {
-cat <<'EOS'
+  cat <<'EOS'
 Keys:
   D = Back to Dashboard
-  L = Logins    C = Cmds    N = Net
-  S = Services  K = Docker  J = Journal
+  Y = SYS (expanded)
+  L = Logins
+  C = Cmds
+  N = Net
+  S = Services
+  K = Docker
+  J = Journal
+  H = Help
   P = Pause dashboard auto-refresh
   Q = Quit
 
-Flow:
-  Dashboard (summary) → Single View (full screen, live updates, no flicker)
-  D returns to Dashboard.
-
+Flow: Dashboard (summary) → Single View (full screen, live updates).
+SYS+: Barras coloridas (verde/normal, vermelho/alto), divisor, uptime, e tabelas Top CPU e Top MEM lado a lado.
 NET:
   • Dashboard: per-interface RX/TX (B/s), sorted by RX.
   • Single (N): real-time RX/TX graphs (B/s), labeled Y-axis.
@@ -656,18 +731,19 @@ main_loop() {
         ((PAUSED==0)) && update_dashboard
         read_key
         case "${key:-}" in
-          [lL]) VIEW="single"; SINGLE="logins";   single_enter "LOGINS (hist)"   get_recent_logins ;;
-          [cC]) VIEW="single"; SINGLE="cmds";     single_enter "CMDS (hist)"     get_recent_cmds   ;;
-          [nN]) VIEW="single"; SINGLE="net";      single_enter "NET (graphs + Y axis)" get_net_throughput_table ;;
-          [sS]) VIEW="single"; SINGLE="services"; single_enter "SERVICES"        get_services_summary ;;
-          [kK]) VIEW="single"; SINGLE="docker";   single_enter "DOCKER"          get_docker_summary ;;
-          [jJ]) VIEW="single"; SINGLE="journal";  single_enter "JOURNAL"         get_journal_tail  ;;
-          [hH]) VIEW="single"; SINGLE="help";     single_enter "HELP"            help_text         ;;
+          [yY]) VIEW="single"; SINGLE="sys";     single_enter "SYS (expanded)" print_sys_fullscreen ;;
+          [lL]) VIEW="single"; SINGLE="logins";  single_enter "LOGINS (hist)"   get_recent_logins ;;
+          [cC]) VIEW="single"; SINGLE="cmds";    single_enter "CMDS (hist)"     get_recent_cmds ;;
+          [nN]) VIEW="single"; SINGLE="net";     single_enter "NET (graphs + Y axis)" get_net_throughput_table ;;
+          [sS]) VIEW="single"; SINGLE="services";single_enter "SERVICES"        get_services_summary ;;
+          [kK]) VIEW="single"; SINGLE="docker";  single_enter "DOCKER"          get_docker_summary ;;
+          [jJ]) VIEW="single"; SINGLE="journal"; single_enter "JOURNAL"         get_journal_tail ;;
+          [hH]) VIEW="single"; SINGLE="help";    single_enter "HELP"            help_text ;;
           [pP]) PAUSED=$((1-PAUSED)) ;;
           [qQ]) break ;;
           *) : ;;
         esac
-        ;;
+      ;;
       single)
         single_update
         read_key
@@ -676,7 +752,7 @@ main_loop() {
           [qQ]) break ;;
           *) : ;;
         esac
-        ;;
+      ;;
     esac
   done
 }
@@ -685,7 +761,8 @@ main_loop() {
 usage() {
   cat <<'EOF'
 EyesOfNico — Neon Synthwave Bash TUI
-Usage: EyesOfNico.sh [--refresh N] [--safe] [--no-alt] [--help]
+Usage:
+  EyesOfNico.sh [--refresh N] [--safe] [--no-alt] [--help]
 
 Options:
   --refresh N   Refresh interval in seconds (default: 1)
