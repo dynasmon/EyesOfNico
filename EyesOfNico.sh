@@ -117,40 +117,62 @@ ip_info_lookup() {
 
 logins_today_geo() {
   local LOG="${AUTH_LOG_FILE:-/var/log/auth.log}"
-  local TODAY; TODAY=$(LC_TIME=C date +'%b %e')
-  local have_file=0
 
-  # tenta auth.log
+  # Se houver arquivo, detecta o formato da data (ISO vs "Oct 19")
   if [[ -r "$LOG" ]]; then
-    have_file=1
-    # filtra só hoje
-    grep -F "$TODAY" "$LOG" 2>/dev/null || true
-  # fallback: journalctl do serviço ssh
+    # Olha algumas linhas para decidir o formato
+    local head_sample
+    head_sample=$(head -n 5 "$LOG" 2>/dev/null || true)
+
+    local TODAY_ISO TODAY_MDE
+    TODAY_ISO=$(date -u +'%Y-%m-%d')          # p/ linhas tipo 2025-10-19T...
+    TODAY_MDE=$(LC_TIME=C date +'%b %e')      # p/ linhas tipo "Oct 19"
+
+    if printf '%s\n' "$head_sample" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}'; then
+      # Formato ISO no arquivo
+      grep -E "^${TODAY_ISO}" "$LOG" 2>/dev/null || true
+    else
+      # Formato Mês/Dia no arquivo
+      grep -E "^${TODAY_MDE}" "$LOG" 2>/dev/null || true
+    fi
+
+  # Fallback: journalctl dos serviços ssh/sshd, desde "today" (independente de formato)
   elif has_cmd journalctl; then
-    journalctl -u ssh -n 200 --no-pager 2>/dev/null | grep -F "$TODAY" || true
+    journalctl -u ssh -u sshd --since today --no-pager -o short-iso 2>/dev/null || true
   else
     echo "-- No log source available --"
-    return 0
   fi
 }
 
 # função de alto nível: imprime relatório completo (de hoje, com geo)
 render_logins_today_geo() {
   local LOG="${AUTH_LOG_FILE:-/var/log/auth.log}"
-  local TODAY; TODAY=$(LC_TIME=C date +'%b %e')
-
-  # Captura base de hoje (de arquivo ou journal)
   local tmp; tmp=$(mktemp)
+
   if [[ -r "$LOG" ]]; then
-    grep -F "$TODAY" "$LOG" 2>/dev/null > "$tmp" || true
+    # Detecta formato do arquivo e filtra apenas o dia atual
+    local head_sample TODAY_ISO TODAY_MDE
+    head_sample=$(head -n 5 "$LOG" 2>/dev/null || true)
+    TODAY_ISO=$(date -u +'%Y-%m-%d')
+    TODAY_MDE=$(LC_TIME=C date +'%b %e')
+
+    if printf '%s\n' "$head_sample" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}'; then
+      grep -E "^${TODAY_ISO}" "$LOG" 2>/dev/null > "$tmp" || true
+    else
+      grep -E "^${TODAY_MDE}" "$LOG" 2>/dev/null > "$tmp" || true
+    fi
+    SRC="${LOG}"
+
   elif has_cmd journalctl; then
-    journalctl -u ssh -n 500 --no-pager 2>/dev/null | grep -F "$TODAY" > "$tmp" || true
+    # Pega somente de hoje (independente do locale) e força saída ISO
+    journalctl -u ssh -u sshd --since today --no-pager -o short-iso 2>/dev/null > "$tmp" || true
+    SRC="journalctl (ssh/sshd, today)"
   else
     echo "-- No log source available --"
     rm -f "$tmp"; return 0
   fi
 
-  echo "Analyzing TODAY in ${LOG:-journalctl}..."
+  echo "Analyzing TODAY from ${SRC}..."
   echo "============================ SSH LOGINS (TODAY) ============================"
 
   echo
@@ -177,12 +199,11 @@ render_logins_today_geo() {
 
   echo
   echo "📍 Top IPs (geo-enriched):"
-  # top IPs agregados (Accepted/Failed/Invalid)
   awk '
     /Accepted/ || /Failed password/ || /Invalid user/ {
       for (i=1;i<=NF;i++) if ($i=="from" && (i+1)<=NF) {
-        ip=$(i+1);
-        if (ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) print ip;
+        ip=$(i+1); gsub(/[,;]$/, "", ip);
+        if (ip ~ /^([0-9]{1,3}\.){3}[0-9]{1,3}$/ || ip ~ /^[0-9A-Fa-f:]+$/) print ip;
       }
     }
   ' "$tmp" \
