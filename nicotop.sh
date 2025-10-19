@@ -176,29 +176,29 @@ render_logins_today_geo() {
   echo "============================ SSH LOGINS (TODAY) ============================"
 
   echo
-  echo "✅ Accepted (password/publickey):"
+  echo "Accepted (password/publickey):"
   grep -F "Accepted" "$tmp" 2>/dev/null \
     | extract_ips_from_line \
     | sort | uniq -c | sort -nr
 
   echo
-  echo "❌ Failed password:"
+  echo "Failed password:"
   grep -F "Failed password" "$tmp" 2>/dev/null \
     | extract_ips_from_line \
     | sort | uniq -c | sort -nr
 
   echo
-  echo "🚫 Invalid user:"
+  echo "Invalid user:"
   grep -F "Invalid user" "$tmp" 2>/dev/null \
     | extract_ips_from_line \
     | sort | uniq -c | sort -nr
 
   echo
-  echo "💻 sudo commands:"
+  echo "sudo commands:"
   grep -F 'sudo:' "$tmp" 2>/dev/null | awk '{for(i=6;i<=NF;i++) printf (i==6?$i:" "$i); print ""}'
 
   echo
-  echo "📍 Top IPs (geo-enriched):"
+  echo "Top IPs (geo-enriched):"
   awk '
     /Accepted/ || /Failed password/ || /Invalid user/ {
       for (i=1;i<=NF;i++) if ($i=="from" && (i+1)<=NF) {
