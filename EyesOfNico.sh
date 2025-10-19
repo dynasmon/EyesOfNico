@@ -188,7 +188,9 @@ read_key() {
 
 on_exit() { STOP=true; restore_screen; }
 trap on_exit INT TERM
-trap 'update_term_size' WINCH
+RESIZED=0
+on_resize() { RESIZED=1; }
+trap on_resize WINCH
 
 # ======================== Metrics / Collectors ==========================
 get_loadavg() { awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null || echo "N/A"; }
@@ -698,6 +700,27 @@ single_update() {
   keybar_single
 }
 
+# Recalcula medidas e redesenha a moldura atual após resize de terminal
+reframe_dashboard() {
+  wipe_screen
+  update_term_size
+  draw_dashboard_frame
+}
+
+reframe_single() {
+  wipe_screen
+  update_term_size
+  header
+  # recalcula a área da single view
+  SV_y=3; SV_x=0; SV_h=$((rows-5)); SV_w=$cols
+  box "$SV_y" "$SV_x" "$SV_h" "$SV_w" " ${SV_title} "
+  # se for NET, precisamos recalibrar a largura do gráfico
+  if [[ "$SINGLE" == "net" ]]; then
+    net_init_chart   # reacomoda NET_MAXPTS ao novo SV_w
+  fi
+  keybar_single
+}
+
 # ======================== HELP (content) ================================
 help_text() {
   cat <<'EOS'
@@ -724,8 +747,30 @@ EOS
 
 # ======================== Main loop ====================================
 main_loop() {
+  # assume que existe uma trap:  on_resize() { RESIZED=1; }; trap on_resize WINCH
+  RESIZED=${RESIZED:-0}
+
   clear_alt; update_term_size; draw_dashboard_frame
   while ! $STOP; do
+    # Se a janela foi redimensionada, redesenha o frame atual
+    if (( RESIZED == 1 )); then
+      RESIZED=0
+      if [[ "$VIEW" == "dashboard" ]]; then
+        wipe_screen
+        update_term_size
+        draw_dashboard_frame
+      else
+        # single view: recalcula área e redesenha moldura
+        wipe_screen
+        update_term_size
+        header
+        SV_y=3; SV_x=0; SV_h=$((rows-5)); SV_w=$cols
+        box "$SV_y" "$SV_x" "$SV_h" "$SV_w" " ${SV_title} "
+        [[ "$SINGLE" == "net" ]] && net_init_chart   # recalibra largura do gráfico
+        keybar_single
+      fi
+    fi
+
     case "$VIEW" in
       dashboard)
         ((PAUSED==0)) && update_dashboard
@@ -756,6 +801,7 @@ main_loop() {
     esac
   done
 }
+
 
 # ======================== CLI ==========================================
 usage() {
