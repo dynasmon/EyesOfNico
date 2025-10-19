@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
-# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ EyesOfNico — Terminal Server Monitor (Bash TUI)                     ┃
-# ┃ Theme: Neon Synthwave | Gradient borders | Full black background    ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-set -o pipefail  # tolerant (no -e/-u)
+set -o pipefail 
 
 # ======================== Colors / Theme ================================
 c_supports_256() { tput colors 2>/dev/null | awk '{exit !($1>=256)}'; }
-# ANSI helpers
-fg256(){ printf "\e[38;5;%sm" "$1"; } # foreground
-bg256(){ printf "\e[48;5;%sm" "$1"; } # background
+
+fg256(){ printf "\e[38;5;%sm" "$1"; } 
+bg256(){ printf "\e[48;5;%sm" "$1"; }
 RESET=$(tput sgr0 2>/dev/null || printf "\e[0m")
 BOLD=$(tput bold 2>/dev/null || printf "\e[1m")
 DIM=$(tput dim 2>/dev/null || printf "\e[2m")
@@ -17,7 +13,7 @@ UL=$(tput smul 2>/dev/null || printf "\e[4m")
 CURSOR_HIDE(){ tput civis 2>/dev/null || true; }
 CURSOR_SHOW(){ tput cnorm 2>/dev/null || true; }
 
-# Synthwave palette (magenta → purple → blue)
+
 if c_supports_256; then
   COL_MAG=199  # neon magenta
   COL_PUR=129  # neon purple
@@ -38,8 +34,8 @@ FG_DIM="$(fg256 245)$DIM"
 
 # ======================== Config =======================================
 REFRESH="1"
-VIEW="dashboard"  # dashboard | single
-SINGLE=""         # logins/cmds/net/services/docker/journal/help/sys
+VIEW="dashboard" 
+SINGLE=""
 STOP=false
 SAFE_MODE=0
 NO_ALT_SCREEN=0
@@ -96,8 +92,8 @@ restore_screen() {
 }
 wipe_screen() { printf "%s\033[2J\033[H" "$BG_BLACK"; }
 
-cuf() { printf "\033[%dC" "${1:-1}"; }   # move cursor para a direita
-cub() { printf "\033[%dD" "${1:-1}"; }   # move cursor para a esquerda
+cuf() { printf "\033[%dC" "${1:-1}"; }   
+cub() { printf "\033[%dD" "${1:-1}"; }
 
 # ── Header com gradiente ────────────────────────────────────────────────
 header() {
@@ -262,7 +258,7 @@ get_net_throughput_table() {
   printf "%s\n" "${lines[@]}" | sort -k2nr
 }
 
-# ======================== NET (single: btop-like graphs) ================
+# ======================== NET ================
 NET_LAST_RX=0; NET_LAST_TX=0; NET_LAST_T=0
 NET_HIST_RX=(); NET_HIST_TX=()
 NET_MAXPTS=60
@@ -514,14 +510,11 @@ get_journal_tail() {
 }
 
 # ======================== SYS: barras coloridas =========================
-# Retorna cor verde/vermelha conforme threshold
 color_for_value() {
   local val=$1 warn=$2
   if (( ${val%%.*} >= warn )); then fg256 $COL_BAD; else fg256 $COL_OK; fi
 }
 
-# Barra com FUNDO CINZA (100%) e preenchimento progressivo 1/8 por célula
-# Sem movimentos de cursor e com pouquíssimos códigos ANSI (compatível com print_in_box)
 draw_bar() {
   local label="$1" pct="$2" width="$3" warn="$4" suffix="$5"
   ((width<10)) && width=10
@@ -531,7 +524,7 @@ draw_bar() {
 
   # passos fracionários (cada célula = 8 passos)
   local total_steps=$(( width * 8 ))
-  local filled_steps=$(( (p * total_steps + 50) / 100 ))  # arredonda
+  local filled_steps=$(( (p * total_steps + 50) / 100 )) # gambiarra pra arredondar
   ((filled_steps<0)) && filled_steps=0
   ((filled_steps>total_steps)) && filled_steps=$total_steps
   local full_cells=$(( filled_steps / 8 ))
@@ -609,7 +602,7 @@ print_sys_fullscreen() {
   printf "%s%-*s%s  %s%-*s%s\n" "$BOLD" "$half" "Top CPU (pid/comm/%cpu/%mem)" "$RESET" "$BOLD" "$half" "Top MEM (pid/comm/%cpu/%mem)" "$RESET"
   # Linhas
   paste <(get_top_cpu) <(get_top_mem) | while IFS=$'\t' read -r left right; do
-    # Em alguns shells paste usa \t; garantimos largura fixa
+    # Em alguns shells paste usa \t;
     printf "%-*.*s  %-*.*s\n" "$half" "$half" "${left:0:$half}" "$half" "$half" "${right:0:$half}"
   done
 }
@@ -714,7 +707,7 @@ reframe_single() {
   # recalcula a área da single view
   SV_y=3; SV_x=0; SV_h=$((rows-5)); SV_w=$cols
   box "$SV_y" "$SV_x" "$SV_h" "$SV_w" " ${SV_title} "
-  # se for NET, precisamos recalibrar a largura do gráfico
+  # se for NET, recalibrar a largura do gráfico
   if [[ "$SINGLE" == "net" ]]; then
     net_init_chart   # reacomoda NET_MAXPTS ao novo SV_w
   fi
