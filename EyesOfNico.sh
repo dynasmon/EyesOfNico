@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-set -o pipefail 
+# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+# ┃ EyesOfNico — Terminal Server Monitor (Bash TUI)                     ┃
+# ┃ Theme: Neon Synthwave | Gradient borders | Full black background    ┃
+# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+set -o pipefail  # tolerant (no -e/-u)
 
 # ======================== Colors / Theme ================================
 c_supports_256() { tput colors 2>/dev/null | awk '{exit !($1>=256)}'; }
-
-fg256(){ printf "\e[38;5;%sm" "$1"; } 
-bg256(){ printf "\e[48;5;%sm" "$1"; }
+# ANSI helpers
+fg256(){ printf "\e[38;5;%sm" "$1"; } # foreground
+bg256(){ printf "\e[48;5;%sm" "$1"; } # background
 RESET=$(tput sgr0 2>/dev/null || printf "\e[0m")
 BOLD=$(tput bold 2>/dev/null || printf "\e[1m")
 DIM=$(tput dim 2>/dev/null || printf "\e[2m")
@@ -13,7 +17,7 @@ UL=$(tput smul 2>/dev/null || printf "\e[4m")
 CURSOR_HIDE(){ tput civis 2>/dev/null || true; }
 CURSOR_SHOW(){ tput cnorm 2>/dev/null || true; }
 
-
+# Synthwave palette (magenta → purple → blue)
 if c_supports_256; then
   COL_MAG=199  # neon magenta
   COL_PUR=129  # neon purple
@@ -34,8 +38,8 @@ FG_DIM="$(fg256 245)$DIM"
 
 # ======================== Config =======================================
 REFRESH="1"
-VIEW="dashboard" 
-SINGLE=""
+VIEW="dashboard"  # dashboard | single
+SINGLE=""         # logins/cmds/net/services/docker/journal/help/sys
 STOP=false
 SAFE_MODE=0
 NO_ALT_SCREEN=0
@@ -53,6 +57,155 @@ AUTH_LOG_FILE=""
 detect_auth_log() {
   if [[ -f /var/log/auth.log ]]; then AUTH_LOG_FILE="/var/log/auth.log"; fi
   if [[ -z "$AUTH_LOG_FILE" && -f /var/log/secure ]]; then AUTH_LOG_FILE="/var/log/secure"; fi
+}
+
+# ======================== LOGINS (today + geo) ==========================
+has_cmd() { command -v "$1" >/dev/null 2>&1; }  # (garante que existe)
+
+# cache simples na sessão para não bater no serviço a cada refresh
+declare -A IPINFO_CACHE
+IPINFO_TTL=3600  # (não usado no exemplo simples; cache de sessão já é suficiente)
+
+# extrai IPs de uma linha de log (procura token "from <ip>")
+extract_ips_from_line() {
+  awk '{
+    for (i=1;i<=NF;i++) if ($i=="from" && (i+1)<=NF) {
+      ip=$(i+1);
+      gsub(/[,;]$/, "", ip);                     # tira vírgula/ponto-e-vírgula do final
+      if (ip ~ /^([0-9]{1,3}\.){3}[0-9]{1,3}$/)  # IPv4
+        print ip;
+      else if (ip ~ /^[0-9A-Fa-f:]+$/)          # IPv6 simples
+        print ip;
+    }
+  }'
+}
+
+ip_info_lookup() {
+  local ip="$1"
+
+  # SAFE_MODE: não faz rede
+  if [[ "${SAFE_MODE:-0}" -eq 1 ]]; then
+    echo "$ip - ? - ?"; return 0
+  fi
+
+  # evita consulta para IPs locais/privados
+  if [[ "$ip" =~ ^127\. ]] || [[ "$ip" == "::1" ]] \
+     || [[ "$ip" =~ ^10\. ]] || [[ "$ip" =~ ^192\.168\. ]] \
+     || [[ "$ip" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]] \
+     || [[ "$ip" =~ ^fe80: ]] || [[ "$ip" =~ ^fc00: ]] || [[ "$ip" =~ ^fd00: ]]; then
+    echo "$ip - local - LAN"; return 0
+  fi
+
+  # cache de sessão
+  if [[ -n "${IPINFO_CACHE[$ip]:-}" ]]; then
+    echo "${IPINFO_CACHE[$ip]}"; return 0
+  fi
+
+  if has_cmd curl; then
+    local response country org
+    response=$(curl -m 4 --connect-timeout 3 -s -H 'User-Agent: EyesOfNico/1.0' "https://ipinfo.io/$ip/json" || echo "")
+    country=$(printf "%s" "$response" | awk -F'"' '/"country":/ {print $4; exit}')
+    org=$(printf "%s" "$response" | awk -F'"' '/"org":/ {print $4; exit}')
+    [[ -z "$country" ]] && country="?"
+    [[ -z "$org" ]] && org="?"
+    IPINFO_CACHE[$ip]="$ip - $country - $org"
+    echo "${IPINFO_CACHE[$ip]}"
+  else
+    echo "$ip - ? - ?"
+  fi
+}
+
+logins_today_geo() {
+  local LOG="${AUTH_LOG_FILE:-/var/log/auth.log}"
+  local TODAY; TODAY=$(LC_TIME=C date +'%b %e')
+  local have_file=0
+
+  # tenta auth.log
+  if [[ -r "$LOG" ]]; then
+    have_file=1
+    # filtra só hoje
+    grep -F "$TODAY" "$LOG" 2>/dev/null || true
+  # fallback: journalctl do serviço ssh
+  elif has_cmd journalctl; then
+    journalctl -u ssh -n 200 --no-pager 2>/dev/null | grep -F "$TODAY" || true
+  else
+    echo "-- No log source available --"
+    return 0
+  fi
+}
+
+# função de alto nível: imprime relatório completo (de hoje, com geo)
+render_logins_today_geo() {
+  local LOG="${AUTH_LOG_FILE:-/var/log/auth.log}"
+  local TODAY; TODAY=$(LC_TIME=C date +'%b %e')
+
+  # Captura base de hoje (de arquivo ou journal)
+  local tmp; tmp=$(mktemp)
+  if [[ -r "$LOG" ]]; then
+    grep -F "$TODAY" "$LOG" 2>/dev/null > "$tmp" || true
+  elif has_cmd journalctl; then
+    journalctl -u ssh -n 500 --no-pager 2>/dev/null | grep -F "$TODAY" > "$tmp" || true
+  else
+    echo "-- No log source available --"
+    rm -f "$tmp"; return 0
+  fi
+
+  echo "Analyzing TODAY in ${LOG:-journalctl}..."
+  echo "============================ SSH LOGINS (TODAY) ============================"
+
+  echo
+  echo "✅ Accepted (password/publickey):"
+  grep -F "Accepted" "$tmp" 2>/dev/null \
+    | extract_ips_from_line \
+    | sort | uniq -c | sort -nr
+
+  echo
+  echo "❌ Failed password:"
+  grep -F "Failed password" "$tmp" 2>/dev/null \
+    | extract_ips_from_line \
+    | sort | uniq -c | sort -nr
+
+  echo
+  echo "🚫 Invalid user:"
+  grep -F "Invalid user" "$tmp" 2>/dev/null \
+    | extract_ips_from_line \
+    | sort | uniq -c | sort -nr
+
+  echo
+  echo "💻 sudo commands:"
+  grep -F 'sudo:' "$tmp" 2>/dev/null | awk '{for(i=6;i<=NF;i++) printf (i==6?$i:" "$i); print ""}'
+
+  echo
+  echo "📍 Top IPs (geo-enriched):"
+  # top IPs agregados (Accepted/Failed/Invalid)
+  awk '
+    /Accepted/ || /Failed password/ || /Invalid user/ {
+      for (i=1;i<=NF;i++) if ($i=="from" && (i+1)<=NF) {
+        ip=$(i+1);
+        if (ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) print ip;
+      }
+    }
+  ' "$tmp" \
+  | sort | uniq -c | sort -nr \
+  | while read -r count ip; do
+      info=$(ip_info_lookup "$ip")
+      printf " %4s %s\n" "$count" "$info"
+    done
+
+  echo
+  echo "👤 Accepted as root:"
+  grep -F "Accepted" "$tmp" 2>/dev/null | grep -F " for root " || true
+
+  echo
+  echo "👥 Users that tried to log in:"
+  {
+    grep -F "Failed password" "$tmp" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="for" && (i+1)<=NF){print $(i+1); break}}'
+    grep -F "Invalid user"   "$tmp" 2>/dev/null | awk '{for(i=1;i<=NF-1;i++) if($i=="user"){print $(i+1); break}}'
+  } | sort | uniq -c | sort -nr
+
+  echo
+  echo "Analysis finished."
+  rm -f "$tmp"
 }
 
 # ======================== UI Helpers ===================================
@@ -92,8 +245,8 @@ restore_screen() {
 }
 wipe_screen() { printf "%s\033[2J\033[H" "$BG_BLACK"; }
 
-cuf() { printf "\033[%dC" "${1:-1}"; }   
-cub() { printf "\033[%dD" "${1:-1}"; }
+cuf() { printf "\033[%dC" "${1:-1}"; }   # move cursor para a direita
+cub() { printf "\033[%dD" "${1:-1}"; }   # move cursor para a esquerda
 
 # ── Header com gradiente ────────────────────────────────────────────────
 header() {
@@ -258,7 +411,7 @@ get_net_throughput_table() {
   printf "%s\n" "${lines[@]}" | sort -k2nr
 }
 
-# ======================== NET ================
+# ======================== NET (single: btop-like graphs) ================
 NET_LAST_RX=0; NET_LAST_TX=0; NET_LAST_T=0
 NET_HIST_RX=(); NET_HIST_TX=()
 NET_MAXPTS=60
@@ -510,11 +663,14 @@ get_journal_tail() {
 }
 
 # ======================== SYS: barras coloridas =========================
+# Retorna cor verde/vermelha conforme threshold
 color_for_value() {
   local val=$1 warn=$2
   if (( ${val%%.*} >= warn )); then fg256 $COL_BAD; else fg256 $COL_OK; fi
 }
 
+# Barra com FUNDO CINZA (100%) e preenchimento progressivo 1/8 por célula
+# Sem movimentos de cursor e com pouquíssimos códigos ANSI (compatível com print_in_box)
 draw_bar() {
   local label="$1" pct="$2" width="$3" warn="$4" suffix="$5"
   ((width<10)) && width=10
@@ -524,7 +680,7 @@ draw_bar() {
 
   # passos fracionários (cada célula = 8 passos)
   local total_steps=$(( width * 8 ))
-  local filled_steps=$(( (p * total_steps + 50) / 100 )) # gambiarra pra arredondar
+  local filled_steps=$(( (p * total_steps + 50) / 100 ))  # arredonda
   ((filled_steps<0)) && filled_steps=0
   ((filled_steps>total_steps)) && filled_steps=$total_steps
   local full_cells=$(( filled_steps / 8 ))
@@ -602,7 +758,7 @@ print_sys_fullscreen() {
   printf "%s%-*s%s  %s%-*s%s\n" "$BOLD" "$half" "Top CPU (pid/comm/%cpu/%mem)" "$RESET" "$BOLD" "$half" "Top MEM (pid/comm/%cpu/%mem)" "$RESET"
   # Linhas
   paste <(get_top_cpu) <(get_top_mem) | while IFS=$'\t' read -r left right; do
-    # Em alguns shells paste usa \t;
+    # Em alguns shells paste usa \t; garantimos largura fixa
     printf "%-*.*s  %-*.*s\n" "$half" "$half" "${left:0:$half}" "$half" "$half" "${right:0:$half}"
   done
 }
@@ -707,7 +863,7 @@ reframe_single() {
   # recalcula a área da single view
   SV_y=3; SV_x=0; SV_h=$((rows-5)); SV_w=$cols
   box "$SV_y" "$SV_x" "$SV_h" "$SV_w" " ${SV_title} "
-  # se for NET, recalibrar a largura do gráfico
+  # se for NET, precisamos recalibrar a largura do gráfico
   if [[ "$SINGLE" == "net" ]]; then
     net_init_chart   # reacomoda NET_MAXPTS ao novo SV_w
   fi
@@ -770,7 +926,7 @@ main_loop() {
         read_key
         case "${key:-}" in
           [yY]) VIEW="single"; SINGLE="sys";     single_enter "SYS (expanded)" print_sys_fullscreen ;;
-          [lL]) VIEW="single"; SINGLE="logins";  single_enter "LOGINS (hist)"   get_recent_logins ;;
+          [lL]) VIEW="single"; SINGLE="logins";  single_enter "LOGINS (today + geo)" render_logins_today_geo ;;
           [cC]) VIEW="single"; SINGLE="cmds";    single_enter "CMDS (hist)"     get_recent_cmds ;;
           [nN]) VIEW="single"; SINGLE="net";     single_enter "NET (graphs + Y axis)" get_net_throughput_table ;;
           [sS]) VIEW="single"; SINGLE="services";single_enter "SERVICES"        get_services_summary ;;
