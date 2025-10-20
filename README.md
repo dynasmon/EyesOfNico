@@ -1,7 +1,8 @@
 # EyesOfNico — Terminal Server Monitor (Bash TUI)
 
-**Version:** Neon Synthwave (progressive bars + overlay)  
+**Version:** Neon Synthwave 
 **File:** `EyesOfNico.sh`
+<img width="1702" height="795" alt="image" src="https://github.com/user-attachments/assets/4ca5325c-8e8c-49a2-978c-c7f8d2a39672" />
 
 ---
 
