@@ -54,11 +54,11 @@
 ## 3) Installation
 
 ### 3.1. Get the script
-Save the file as `EyesOfNico.sh` anywhere (e.g., your `$HOME`).
+Save the file as `nicotop.sh` anywhere (e.g., your `$HOME`).
 
 ### 3.2. Make it executable
 ```bash
-chmod +x EyesOfNico.sh
+chmod +x nicotop.sh
 ```
 
 ### 3.3. Install dependencies (examples)
@@ -98,7 +98,7 @@ for i in {0..255}; do printf "\e[48;5;%sm %3s \e[0m" $i $i; (( (i+1)%16==0 )) &&
 
 Basic:
 ```bash
-./EyesOfNico.sh
+./nicotop.sh
 ```
 
 Options:
@@ -111,9 +111,9 @@ Options:
 
 Examples:
 ```bash
-./EyesOfNico.sh --refresh 1
-./EyesOfNico.sh --safe
-./EyesOfNico.sh --no-alt
+./nicotop.sh --refresh 1
+./nicotop.sh --safe
+./nicotop.sh --no-alt
 ```
 
 Keyboard shortcuts:
@@ -195,9 +195,9 @@ Handled via `SIGWINCH`. The script recalculates sizes and redraws frames automat
 
 Insert your screenshots in the sections below:
 
-- **[Screenshot: Full Dashboard]**
+- **<img width="1702" height="795" alt="image" src="https://github.com/user-attachments/assets/aa532064-2744-4657-bb7b-bcadeb804298" />**
 
-- **[Screenshot: SYS (expanded) — bars + Top CPU/MEM]**
+- **<img width="1703" height="794" alt="image" src="https://github.com/user-attachments/assets/7a6adf37-b732-4d86-be31-a03429a627b5" />**
 
 - **[Screenshot: NET (live chart)]**
 
@@ -253,7 +253,7 @@ Use `--safe` or install/enable those components on your system.
 
 Remove the file:
 ```bash
-rm -f EyesOfNico.sh
+rm -f nicotop.sh
 ```
 
 ---
