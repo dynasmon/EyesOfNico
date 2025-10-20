@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-# ┃ EyesOfNico — Terminal Server Monitor (Bash TUI)                     ┃
-# ┃ Theme: Neon Synthwave | Gradient borders | Full black background    ┃
-# ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 set -o pipefail  # tolerant (no -e/-u)
 
 # ======================== Colors / Theme ================================
@@ -125,8 +121,8 @@ logins_today_geo() {
     head_sample=$(head -n 5 "$LOG" 2>/dev/null || true)
 
     local TODAY_ISO TODAY_MDE
-    TODAY_ISO=$(date -u +'%Y-%m-%d')          # p/ linhas tipo 2025-10-19T...
-    TODAY_MDE=$(LC_TIME=C date +'%b %e')      # p/ linhas tipo "Oct 19"
+    TODAY_ISO=$(date -u +'%Y-%m-%d')          # linhas tipo 2025-10-19T...
+    TODAY_MDE=$(LC_TIME=C date +'%b %e')      # linhas tipo "Oct 19"
 
     if printf '%s\n' "$head_sample" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}'; then
       # Formato ISO no arquivo
@@ -144,7 +140,7 @@ logins_today_geo() {
   fi
 }
 
-# função de alto nível: imprime relatório completo (de hoje, com geo)
+# minha outra ferramenta(lupe): imprime relatório completo (de hoje, com geo)
 render_logins_today_geo() {
   local LOG="${AUTH_LOG_FILE:-/var/log/auth.log}"
   local tmp; tmp=$(mktemp)
@@ -214,11 +210,11 @@ render_logins_today_geo() {
     done
 
   echo
-  echo "👤 Accepted as root:"
+  echo " Accepted as root:"
   grep -F "Accepted" "$tmp" 2>/dev/null | grep -F " for root " || true
 
   echo
-  echo "👥 Users that tried to log in:"
+  echo " Users that tried to log in:"
   {
     grep -F "Failed password" "$tmp" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="for" && (i+1)<=NF){print $(i+1); break}}'
     grep -F "Invalid user"   "$tmp" 2>/dev/null | awk '{for(i=1;i<=NF-1;i++) if($i=="user"){print $(i+1); break}}'
@@ -326,20 +322,49 @@ keybar_single() {
   printf "%s[D]ashboard [Q]uit%s" "$FG_DIM" "$RESET"
 }
 
-# print helpers
+# print_in_box y x h w  — imprime com proteção: expande TABs e faz wrap duro
 print_in_box() {
   local y=$1 x=$2 h=$3 w=$4
   local max_lines=$((h-2)); ((max_lines<=0)) && return
   local width=$((w-2)); ((width<1)) && width=1
-  local buf=() line
+
+  # buffer com wrap
+  local -a buf=()
+  local line chunk
+  local tab_spaces="  "  # 2 espaços por TAB para economizar largura
+
+  # Lê da STDIN e faz wrap duro (quebra inclusive palavras longas)
   while IFS= read -r line; do
-    line=${line%$'\r'}; buf+=("${line}")
+    # remove CR de logs, expande TABs
+    line=${line%$'\r'}
+    line=${line//$'\t'/$tab_spaces}
+
+    # quebra em blocos de 'width'
+    while : ; do
+      # comprimento atual
+      local len=${#line}
+      if (( len <= width )); then
+        buf+=("$line")
+        break
+      else
+        chunk=${line:0:width}
+        buf+=("$chunk")
+        line=${line:width}
+      fi
+      (( ${#buf[@]} >= max_lines )) && break
+    done
+
     (( ${#buf[@]} >= max_lines )) && break
   done
-  local i
-  for ((i=0;i<max_lines;i++)); do
-    local out="${buf[i]-}"
-    tput cup $((y+1+i)) $((x+1)); printf "%s%-*s%s" "$BG_BLACK" "$width" "${out:0:$width}" "$RESET"
+
+  # imprime exatamente até max_lines linhas, preenchendo resto com vazio
+  local i out
+  for ((i=0; i<max_lines; i++)); do
+    out="${buf[i]-}"
+    # garante padding para não sobrar “lixo” visual
+    printf -v out "%-*s" "$width" "$out"
+    tput cup $((y+1+i)) $((x+1))
+    printf "%s%s%s" "$BG_BLACK" "$out" "$RESET"
   done
 }
 render_in_box() { local y=$1 x=$2 h=$3 w=$4; shift 4; local tmp; tmp=$(mktemp); "$@" > "$tmp"; print_in_box "$y" "$x" "$h" "$w" < "$tmp"; rm -f "$tmp"; }
@@ -385,7 +410,7 @@ get_disks() {
 get_top_cpu() { ps -eo pid,comm,%cpu,%mem --sort=-%cpu 2>/dev/null | head -n 20; }
 get_top_mem() { ps -eo pid,comm,%cpu,%mem --sort=-%mem 2>/dev/null | head -n 20; }
 
-# ===================== Dashboard NET: per-interface throughput ==========
+# ===================== Dashboard NET ==========
 declare -A NET_LAST_RX NET_LAST_TX
 NET_LAST_T_NS=0
 net_now_ns() { date +%s%N; }
@@ -432,7 +457,7 @@ get_net_throughput_table() {
   printf "%s\n" "${lines[@]}" | sort -k2nr
 }
 
-# ======================== NET (single: btop-like graphs) ================
+# ======================== NET ================
 NET_LAST_RX=0; NET_LAST_TX=0; NET_LAST_T=0
 NET_HIST_RX=(); NET_HIST_TX=()
 NET_MAXPTS=60
@@ -562,7 +587,7 @@ net_draw_graph_text() {
   }
 }
 
-# ======================== Histories (other views) =======================
+# ======================== Histories =======================
 detect_auth_log
 get_recent_logins() {
   if [[ -n "$AUTH_LOG_FILE" && -r "$AUTH_LOG_FILE" ]]; then
@@ -574,7 +599,7 @@ get_recent_logins() {
   fi
 }
 
-# ======================== CMDS (hist) — robust fallbacks ===============
+# ======================== CMDS (hist) ===============
 _parse_bash_history() {
   local file="$1" ts line
   [[ -r "$file" ]] || return 1
@@ -684,13 +709,12 @@ get_journal_tail() {
 }
 
 # ======================== SYS: barras coloridas =========================
-# Retorna cor verde/vermelha conforme threshold
+# Retorna cor verde/vermelha
 color_for_value() {
   local val=$1 warn=$2
   if (( ${val%%.*} >= warn )); then fg256 $COL_BAD; else fg256 $COL_OK; fi
 }
 
-# Barra com FUNDO CINZA (100%) e preenchimento progressivo 1/8 por célula
 # Sem movimentos de cursor e com pouquíssimos códigos ANSI (compatível com print_in_box)
 draw_bar() {
   local label="$1" pct="$2" width="$3" warn="$4" suffix="$5"
@@ -805,7 +829,7 @@ draw_dashboard_frame() {
   box "$y2" "$x2" "$h2" "$w" " DOCKER "
   box "$y2" "$x3" "$h2" "$w" " JOURNAL "
 
-  # SYS (nova renderização bonita)
+  # SYS
   render_in_box "$y0" "$x1" "$h0" "$w" print_sys_summary
   # DISKS
   { get_disks; } | print_in_box "$y0" "$x2" "$h0" "$w"
@@ -846,7 +870,7 @@ update_dashboard() {
   keybar_dash
 }
 
-# ======================== Single View (no flicker) ======================
+# ======================== Single View ======================
 SV_y=3; SV_x=0; SV_h=0; SV_w=0; SV_title=""; SV_fn=""; SV_frame_drawn=0
 single_enter() {
   SV_title="$1"; SV_fn="$2"
@@ -884,7 +908,7 @@ reframe_single() {
   # recalcula a área da single view
   SV_y=3; SV_x=0; SV_h=$((rows-5)); SV_w=$cols
   box "$SV_y" "$SV_x" "$SV_h" "$SV_w" " ${SV_title} "
-  # se for NET, precisamos recalibrar a largura do gráfico
+  # se for NET, recalibrar a largura do gráfico
   if [[ "$SINGLE" == "net" ]]; then
     net_init_chart   # reacomoda NET_MAXPTS ao novo SV_w
   fi
