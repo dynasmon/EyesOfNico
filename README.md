@@ -191,9 +191,7 @@ Handled via `SIGWINCH`. The script recalculates sizes and redraws frames automat
 
 ---
 
-## 7) Screenshots (placeholders)
-
-Insert your screenshots in the sections below:
+## 7) Screenshots
 
 - **<img width="1702" height="795" alt="image" src="https://github.com/user-attachments/assets/aa532064-2744-4657-bb7b-bcadeb804298" />**
 
