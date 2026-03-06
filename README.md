@@ -256,7 +256,3 @@ rm -f nicotop.sh
 
 ---
 
-## 11) License / Credits
-
-Free to use for personal/educational purposes.  
-Credits: *EyesOfNico — Terminal Server Monitor (Bash TUI), Neon Synthwave theme*.
