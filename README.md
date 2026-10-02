@@ -1,258 +1,152 @@
-# EyesOfNico — Terminal Server Monitor (Bash TUI)
+# EyesOfNico
 
-**Version:** Neon Synthwave 
-**File:** `nicotop.sh`
-<img width="1702" height="795" alt="image" src="https://github.com/user-attachments/assets/4ca5325c-8e8c-49a2-978c-c7f8d2a39672" />
+Monitor de Linux em terminal, com o tema neon magenta → roxo → azul. A versão 2 substitui o loop Bash por um binário Go, sem dependências externas de runtime e sem executar comandos durante a coleta.
 
----
+## Executar
 
-## 1) What is it?
+Requisitos: Linux, `/proc`, terminal com controle de cursor e Go **1.22+** para compilar. `/sys` fornece dispositivos e sensores opcionais. O binário compilado não precisa de Go, Bash, ncurses, Docker ou systemd.
 
-**EyesOfNico** is a terminal-based server monitor (Bash TUI) with a neon gradient frame and black background. It provides a responsive dashboard and single-focus views:
-
-- **SYS**: CPU %, Load Average, Memory usage, Uptime  
-  - Progressive bars (1/8 per cell) with a **fixed gray background (100%)** and a **green/red overlay** based on thresholds.
-- **DISKS**: disk usage (`df -h`)
-- **NET**: RX/TX throughput per interface
-- **TOP PROCS**: processes using the most CPU
-- **LOGINS (hist)**: recent SSH events from `auth.log` or `journalctl`
-- **CMDS (hist)**: recent command history (multiple fallbacks)
-- **SERVICES**: systemd summary (failed + selected active units)
-- **DOCKER**: running containers
-- **JOURNAL**: recent system logs
-
-**Single views (full screen):**
-- **SYS (expanded)** → larger bars + **Top CPU** and **Top MEM** tables side by side
-- **NET (live chart)** with Y-axis, window peak, and per-interface instant stats
-- Other views (logins, cmds, services, docker, journal)
-
-**Live resize support**: the layout automatically reflows when the terminal is resized (SIGWINCH).
-
----
-
-## 2) Requirements
-
-**Essential**
-- Linux with Bash 4+ (or compatible)
-- UTF‑8 terminal with **256 colors** (`tput colors >= 256`)
-- Tools: `awk`, `ps`, `df`, `date`, `tput`, `stty`
-- `/proc` mounted (for CPU/memory)
-
-**Recommended**
-- `coreutils` with `numfmt` (nicer NET throughput formatting)
-- `systemd` + `journalctl` (for SERVICES/JOURNAL)
-- `docker` (for DOCKER tab)
-
-**Optional (for richer CMDS history)**
-- `auditd` + `ausearch` **or** `acct/psacct` **or** a configured shell history
-
-**Tested on**
-- Arch/Manjaro, Debian/Ubuntu, Fedora, and WSL2 (UTF‑8 terminal required).
-
----
-
-## 3) Installation
-
-### 3.1. Get the script
-Save the file as `nicotop.sh` anywhere (e.g., your `$HOME`).
-
-### 3.2. Make it executable
-```bash
-chmod +x nicotop.sh
-```
-
-### 3.3. Install dependencies (examples)
-
-**Arch/Manjaro**
-```bash
-sudo pacman -S --needed coreutils gawk procps-ng util-linux systemd
-# optional
-sudo pacman -S docker audit acct
-```
-
-**Debian/Ubuntu**
-```bash
-sudo apt update
-sudo apt install -y coreutils gawk procps util-linux systemd
-# optional
-sudo apt install -y docker.io auditd acct
-```
-
-**Fedora**
-```bash
-sudo dnf install -y coreutils gawk procps-ng util-linux systemd
-# optional
-sudo dnf install -y docker audit auditd psacct
-```
-
-### 3.4. Terminal/Locale
-- Use a monospaced font and UTF‑8. If needed: `export LC_ALL=C.UTF-8`.
-- 256 colors are recommended. Quick color test:
-```bash
-for i in {0..255}; do printf "\e[48;5;%sm %3s \e[0m" $i $i; (( (i+1)%16==0 )) && echo; done
-```
-
----
-
-## 4) Usage
-
-Basic:
 ```bash
 ./nicotop.sh
 ```
 
-Options:
+O launcher compila na primeira execução e recompila quando os fontes mudam. Também é possível compilar e executar diretamente:
+
 ```bash
---refresh N   # update interval in seconds (default: 1)
---safe        # avoid docker/systemd/journal calls when missing
---no-alt      # do not use the alternate screen (helps some terminals)
---help        # show usage
+make build
+./bin/nicotop
 ```
 
-Examples:
+Para instalar o binário:
+
 ```bash
-./nicotop.sh --refresh 1
-./nicotop.sh --safe
-./nicotop.sh --no-alt
+make install PREFIX="$HOME/.local"
+# ou, para instalação no sistema:
+sudo make install
 ```
 
-Keyboard shortcuts:
-- **D** = Dashboard
-- **Y** = SYS (expanded)
-- **L** = Logins
-- **C** = Cmds
-- **N** = Net (live chart)
-- **S** = Services
-- **K** = Docker
-- **J** = Journal
-- **H** = Help
-- **P** = Pause/resume dashboard auto-refresh
-- **Q** = Quit
+A interface se adapta ao tamanho real do terminal. **120×40** acomoda todos os painéis; em **80×24** o overview prioriza o resumo e os processos. O mínimo é **40×12**. Abaixo disso, aparece uma mensagem de resize. O histórico é preservado ao redimensionar ou trocar de visão.
 
----
+## O que monitora
 
-## 5) Quick Configuration
+| Visão | Dados |
+| --- | --- |
+| **1 · Overview** | CPU, RAM, swap, tráfego, disco e tabela interativa de processos |
+| **2 · CPU** | Uso por núcleo, user/system, iowait, steal, load 1/5/15, context switches, forks, frequência, temperatura e PSI |
+| **3 · Memory** | Memória disponível, uso, cache, buffers, slab, páginas sujas/writeback, swap, pressão e processos |
+| **4 · Network** | RX/TX, gráficos por interface ou agregado, pacotes/s no JSON, erros, drops e contadores de bytes |
+| **5 · Disks** | Leitura/escrita, IOPS, ocupação, latência, fila e capacidade/inodes dos filesystems locais |
+| **6 · Processes** | PID, usuário, estado, CPU, RSS, memória %, nice, threads, tempo de CPU, comando e I/O opcional |
 
-**Thresholds (colors in SYS)**
-Edit near the top of the script (Config section):
+Colunas e gráficos se adaptam à largura disponível. Nas visões de CPU, rede e disco, use as setas para acessar listas maiores que a tela. Temperaturas e frequências dependem dos sensores exportados pelo kernel.
+
+A tabela oferece busca incremental, ordenação, árvore de processos, filtro do usuário atual e detalhes. Ao navegar, a seleção acompanha a identidade do processo mesmo se ele mudar de posição. A busca em árvore mantém os ancestrais necessários para entender a hierarquia.
+
+## Teclado
+
+| Tecla | Ação |
+| --- | --- |
+| `1` … `6`, `Tab` | Selecionar ou alternar visões |
+| `↑` / `↓`, `PgUp` / `PgDn`, `Home` / `End` | Selecionar processo ou percorrer a lista da visão |
+| `/` | Buscar PID, usuário, nome ou comando; Enter aplica, Esc cancela |
+| `Esc` | Limpar filtro, fechar diálogo ou voltar ao overview |
+| `c`, `m` | Ordenar por CPU ou memória |
+| `s`, `r` | Alternar critério de ordenação / inverter ordem |
+| `t`, `u`, `f` | Árvore / somente meu usuário / comando completo ou nome |
+| `i` | Ativar/desativar coleta de I/O por processo |
+| `Enter` | Detalhes do processo selecionado |
+| `k`, `x`, `z` | SIGTERM / SIGKILL / suspender ou retomar processo |
+| `[` / `]`, `←` / `→` | Escolher interface ou disco |
+| `p` ou espaço | Pausar/retomar a amostragem |
+| `+` / `-` | Acelerar/desacelerar, de 0,2 a 10 segundos |
+| `?` ou `h` | Ajuda; setas percorrem diálogos em terminais pequenos |
+| `Ctrl-Z` | Suspender o monitor e devolver o terminal ao shell |
+| `q` ou `Ctrl-C` | Sair |
+
+Os atalhos antigos `d` (overview), `y` (CPU) e `n` (rede) continuam disponíveis.
+
+Sinais exigem confirmação com **y** e usam **pidfd** para verificar a identidade antes de agir. Isso requer Linux 5.3+ em amd64/arm64; em kernels antigos, o monitor funciona, mas a ação é recusada. PID 1 e o próprio monitor são protegidos. As permissões normais do Linux se aplicam; o programa não eleva privilégios. Colar texto não confirma ações.
+
+## Opções
+
 ```bash
-CPU_WARN=70   # turn red when >= 70%
-MEM_WARN=75   # turn red when >= 75%
+./bin/nicotop --refresh 0.5
+./bin/nicotop --view processes --sort mem --filter postgres
+./bin/nicotop --process-io
+./bin/nicotop --ascii --no-color
+./bin/nicotop --no-alt
+./bin/nicotop --help
 ```
 
-**Refresh speed**
-- CLI: `--refresh 1`
-- or change `REFRESH="1"` near the top.
+`NO_COLOR` também desativa cores. Locales `C` e `POSIX` ativam bordas ASCII automaticamente. Terminais ANSI básicos usam a paleta de 16 cores; terminais de 256 cores usam a paleta neon. `--safe` permanece como opção de compatibilidade: toda coleta já é local.
 
-**Palette (colors)**
-In the “Colors / Theme” section:
+Sem terminal, inclusive via cron, pipe ou SSH:
+
 ```bash
-COL_EMPTY=240   # gray background for 100% of the bar
-```
-The bar uses this fixed gray background plus a green/red overlay that grows/shrinks with the percentage (fractional blocks ▏▎▍▌▋▊▉).
+# Uma linha JSON por amostra, após estabelecer o baseline.
+./bin/nicotop --json --count 5 --refresh 1
 
-**Resize behavior**
-Handled via `SIGWINCH`. The script recalculates sizes and redraws frames automatically.
+# Fluxo contínuo; Ctrl-C/SIGTERM encerra.
+./bin/nicotop --json
 
----
-
-## 6) What each panel shows
-
-**SYS**
-- CPU % with progressive bar (overlay on fixed gray background)
-- Load Average (1/5/15 min)
-- Memory used/total and %
-- Uptime (hours)
-
-**DISKS**
-- `df -h` output (excludes tmpfs/devtmpfs), top 8 lines
-
-**NET**
-- Dashboard: RX/s and TX/s per interface (sorted by RX)
-- Single view (N): live textual graphs (RX and TX) with labeled Y-axis, window peak, and instant top interfaces
-
-**TOP PROCS**
-- `ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head`
-
-**LOGINS (hist)**
-- From `auth.log` or `journalctl -u ssh` (last ~50–80 lines)
-
-**CMDS (hist)**
-- Tries `ausearch` (auditd) → `lastcomm` (acct) → shell history (bash/zsh/fish)
-
-**SERVICES**
-- `systemctl --failed` and selected active units (sshd, docker, nginx, apache2, cron, redis, mysql/mariadb, postgresql)
-
-**DOCKER**
-- `docker ps --format '{{.Names}}\t{{.Status}}' | head -n 30`
-
-**JOURNAL**
-- `journalctl -n 80`
-
----
-
-## 7) Screenshots
-
-- **<img width="1702" height="795" alt="image" src="https://github.com/user-attachments/assets/aa532064-2744-4657-bb7b-bcadeb804298" />**
-
-- **<img width="1703" height="794" alt="image" src="https://github.com/user-attachments/assets/7a6adf37-b732-4d86-be31-a03429a627b5" />**
-
-- **[Screenshot: NET (live chart)]**
-
-- **[Screenshot: DISKS / LOGINS / CMDS / SERVICES / DOCKER / JOURNAL]**
-
----
-
-## 8) Tips & Notes
-
-- Keep `--refresh 1` for smooth NET/SYS; you can try `0.5` if your terminal handles it.
-- On servers without `systemd`/`docker`, use `--safe` to avoid errors.
-- For richer command history, consider enabling **auditd**:
-```bash
-sudo apt install -y auditd audispd-plugins   # Debian/Ubuntu example
-sudo tee /etc/audit/rules.d/99-cmdlog.rules >/dev/null <<'EOF'
--a always,exit -F arch=b64 -S execve -F auid>=1000 -F auid!=4294967295 -k cmdlog
--a always,exit -F arch=b32 -S execve -F auid>=1000 -F auid!=4294967295 -k cmdlog
-EOF
-sudo augenrules --load || sudo systemctl restart auditd
-```
-Alternative: `acct/psacct` (`lastcomm`).
-
-- Use a monospaced font and UTF‑8; if you see weird characters, adjust your terminal font or set `LC_ALL=C.UTF-8`.
-
----
-
-## 9) Troubleshooting
-
-**`local: '-r': not a valid identifier`**  
-Fixed in current version (separate `local` declarations from `[[ -r ... ]]` checks).
-
-**SYS bars not filling / always empty**  
-Use the **overlay bar implementation without cursor moves** (bar is rendered as a single string). Ensure `COL_EMPTY=240` and UTF‑8 terminal.
-
-**Layout breaks on resize**  
-Current version handles `SIGWINCH` and redraws. Ensure these exist outside functions:
-```bash
-RESIZED=0
-on_resize() { RESIZED=1; }
-trap on_resize WINCH
-```
-and the `main_loop()` contains a block that reframes when `RESIZED==1`.
-
-**NET shows 0 B/s**  
-Wait 1–2 refresh cycles (a baseline is collected). Also check permissions on `/sys/class/net/*/statistics`.
-
-**No output in Docker/Services/Journal**  
-Use `--safe` or install/enable those components on your system.
-
----
-
-## 10) Uninstall
-
-Remove the file:
-```bash
-rm -f nicotop.sh
+# Retrato legível, sem códigos ANSI; usa duas amostras separadas por 200 ms.
+./bin/nicotop --snapshot 120x40
+./bin/nicotop --snapshot 100x30 --view disks
 ```
 
----
+JSON inclui contadores, taxas, identidade dos processos, disponibilidade de PSI/I/O, horário, intervalo medido, duração da coleta e avisos. A primeira linha já tem taxas calculadas. Campos de taxas usam bytes/s; memória e capacidade usam bytes.
 
+## Como as métricas são calculadas
+
+- CPU usa diferenças de todos os campos relevantes de `/proc/stat`. Guest não é somado novamente, e iowait é exibido separadamente. Na tabela de processos, **100% equivale a um núcleo**; um processo multithread pode ultrapassar 100%.
+- Memória usada é `MemTotal - MemAvailable`. Cache recuperável não é tratado integralmente como memória indisponível. RSS é a estimativa rápida fornecida pelo kernel.
+- Rede, disco e CPU dos processos usam o **tempo monotônico efetivamente transcorrido**. Não há sleeps dentro dos coletores. Interfaces novas e PIDs reutilizados começam com um novo baseline; contadores que diminuem não geram underflow.
+- Setores de `diskstats` são convertidos usando **512 bytes**, independentemente do setor físico. Await e IOPS consideram leituras e escritas. Ocupação mede tempo ativo; não representa toda a capacidade de paralelismo de um NVMe.
+- PSI mostra as médias de 10, 60 e 300 segundos. `some` mede espera de uma ou mais tarefas; `full`, de todas as tarefas não ociosas. Ausência de suporte aparece como indisponível.
+- O agregado de rede soma interfaces exceto loopback. Bridges, túneis e veth podem representar o mesmo tráfego em mais de uma camada; selecione uma interface para analisar seu tráfego. Discos são exibidos individualmente, sem somar partições ou camadas de device-mapper.
+- Uso percentual de filesystem segue `used / (used + available)`, considerando blocos reservados. Montagens remotas, autofs, FUSE e camadas internas de overlay de containers são excluídas.
+- O escopo é o **`/proc` visível ao monitor**. Em containers, CPU/memória podem refletir o host e processos podem estar limitados pelo namespace. Não há normalização por cotas cgroup, métricas GPU ou gerenciamento de serviços.
+- Usuários locais são resolvidos por `/etc/passwd`; outros aparecem por UID. Processos encerrados durante a coleta são ignorados. Restrições como `hidepid` e falta de permissão para `/proc/PID/io` podem limitar os dados.
+
+Referências do kernel: [procfs](https://docs.kernel.org/filesystems/proc.html), [estatísticas de bloco](https://docs.kernel.org/block/stat.html) e [PSI](https://docs.kernel.org/accounting/psi.html).
+
+## Eficiência e organização
+
+O caminho normal lê um registro `stat` por processo e os contadores agregados do kernel. Um buffer reutilizável e parsing com array fixo evitam um `stat()` auxiliar e alocações grandes por PID. Comandos e UIDs têm cache de 5 segundos. A coleta de I/O por processo fica desligada até ser solicitada.
+
+Filesystems, sensores e frequência usam um único worker com fila limitada e cache de 5 segundos. Um `statfs` bloqueado não trava a interface nem cria workers indefinidamente. A descoberta de dispositivos de bloco é renovada a cada 10 segundos.
+
+A amostragem roda separada do tratamento de teclas. Não há ticks de animação em alta frequência. O renderer escreve apenas linhas alteradas, em uma única escrita por frame, e os históricos têm limite de 240 amostras por série. Pausar impede novas amostragens; uma coleta já iniciada pode terminar em segundo plano.
+
+```text
+cmd/nicotop/          CLI, JSON e snapshot
+internal/monitor/    Coleta, parsing, cache e sinais via pidfd
+internal/ui/         Estado, interação, layout e terminal
+scripts/pty_check.py Teste do binário em pseudoterminal real
+nicotop.sh           Launcher compatível
+```
+
+Foram removidos o dashboard de nove caixas, as consultas recorrentes a systemd/Docker/journal, a coleta de histórico de shell/audit e a geolocalização externa de IPs. O código anterior permanece no histórico Git.
+
+## Verificar
+
+```bash
+make test          # Contadores, hotplug, PID reuse, árvore, busca, layouts e CLI
+make check         # go vet e detector de data races
+make integration   # PTY: teclado, resize, pausa, sinais, Ctrl-Z e restauração
+make bench         # Parsing, coleta no host e renderização; inclui alocações
+```
+
+Os testes de sinais usam apenas processos descartáveis criados pelo próprio teste. O teste PTY requer Python 3; o detector de races requer o toolchain C usado pelo Go. A captura opcional usa Pillow e fontconfig:
+
+```bash
+python3 scripts/pty_check.py --capture /tmp/nicotop.png
+```
+
+Compilação sem CGO para outra arquitetura:
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o bin/nicotop-arm64 ./cmd/nicotop
+```
+
+Benchmarks dependem do número de processos, hardware, permissões e intervalo. Compare em condições equivalentes e use `collection_ms` no JSON para acompanhar o custo no seu próprio host.
