@@ -1,73 +1,73 @@
 # EyesOfNico
 
-Monitor de Linux em terminal, com o tema neon magenta → roxo → azul. A versão 2 substitui o loop Bash por um binário Go, sem dependências externas de runtime e sem executar comandos durante a coleta.
+A Linux terminal monitor with a neon magenta → purple → blue theme. Version 2 replaces the Bash loop with a Go binary, with no external runtime dependencies and no external commands executed during collection.
 
-## Executar
+## Getting started
 
-Requisitos: Linux, `/proc`, terminal com controle de cursor e Go **1.22+** para compilar. `/sys` fornece dispositivos e sensores opcionais. O binário compilado não precisa de Go, Bash, ncurses, Docker ou systemd.
+Requirements: Linux, `/proc`, a terminal with cursor control, and Go **1.22+** to build. `/sys` provides optional device and sensor information. The compiled binary does not require Go, Bash, ncurses, Docker, or systemd.
 
 ```bash
 ./nicotop.sh
 ```
 
-O launcher compila na primeira execução e recompila quando os fontes mudam. Também é possível compilar e executar diretamente:
+The launcher builds on the first run and rebuilds when source files change. You can also build and run the binary directly:
 
 ```bash
 make build
 ./bin/nicotop
 ```
 
-Para instalar o binário:
+To install the binary:
 
 ```bash
 make install PREFIX="$HOME/.local"
-# ou, para instalação no sistema:
+# Or install system-wide:
 sudo make install
 ```
 
-A interface se adapta ao tamanho real do terminal. **120×40** acomoda todos os painéis; em **80×24** o overview prioriza o resumo e os processos. O mínimo é **40×12**. Abaixo disso, aparece uma mensagem de resize. O histórico é preservado ao redimensionar ou trocar de visão.
+The interface adapts to the terminal's actual size. **120×40** fits all panels; at **80×24**, the overview prioritizes the system summary and processes. The minimum is **40×12**. Smaller terminals display a resize prompt. History is preserved when resizing or switching views.
 
-## O que monitora
+## Monitored metrics
 
-| Visão | Dados |
+| View | Metrics |
 | --- | --- |
-| **1 · Overview** | CPU, RAM, swap, tráfego, disco e tabela interativa de processos |
-| **2 · CPU** | Uso por núcleo, user/system, iowait, steal, load 1/5/15, context switches, forks, frequência, temperatura e PSI |
-| **3 · Memory** | Memória disponível, uso, cache, buffers, slab, páginas sujas/writeback, swap, pressão e processos |
-| **4 · Network** | RX/TX, gráficos por interface ou agregado, pacotes/s no JSON, erros, drops e contadores de bytes |
-| **5 · Disks** | Leitura/escrita, IOPS, ocupação, latência, fila e capacidade/inodes dos filesystems locais |
-| **6 · Processes** | PID, usuário, estado, CPU, RSS, memória %, nice, threads, tempo de CPU, comando e I/O opcional |
+| **1 · Overview** | CPU, RAM, swap, network traffic, disks, and an interactive process table |
+| **2 · CPU** | Per-core usage, user/system time, iowait, steal, 1/5/15-minute load averages, context switches, forks, frequency, temperature, and PSI |
+| **3 · Memory** | Available and used memory, cache, buffers, slab, dirty/writeback pages, swap, pressure, and processes |
+| **4 · Network** | RX/TX, per-interface or aggregate graphs, packets/s in JSON, errors, drops, and byte counters |
+| **5 · Disks** | Read/write throughput, IOPS, busy time, latency, queue depth, and local filesystem capacity/inodes |
+| **6 · Processes** | PID, user, state, CPU, RSS, memory %, nice value, threads, CPU time, command, and optional I/O |
 
-Colunas e gráficos se adaptam à largura disponível. Nas visões de CPU, rede e disco, use as setas para acessar listas maiores que a tela. Temperaturas e frequências dependem dos sensores exportados pelo kernel.
+Columns and graphs adapt to the available width. In the CPU, network, and disk views, use the arrow keys to scroll through lists longer than the screen. Temperature and frequency readings depend on the sensors exposed by the kernel.
 
-A tabela oferece busca incremental, ordenação, árvore de processos, filtro do usuário atual e detalhes. Ao navegar, a seleção acompanha a identidade do processo mesmo se ele mudar de posição. A busca em árvore mantém os ancestrais necessários para entender a hierarquia.
+The process table supports incremental search, sorting, a process tree, a current-user filter, and process details. Once you navigate, the selection follows the process identity even when its position changes. Tree searches retain the ancestors needed to understand the hierarchy.
 
-## Teclado
+## Keyboard shortcuts
 
-| Tecla | Ação |
+| Key | Action |
 | --- | --- |
-| `1` … `6`, `Tab` | Selecionar ou alternar visões |
-| `↑` / `↓`, `PgUp` / `PgDn`, `Home` / `End` | Selecionar processo ou percorrer a lista da visão |
-| `/` | Buscar PID, usuário, nome ou comando; Enter aplica, Esc cancela |
-| `Esc` | Limpar filtro, fechar diálogo ou voltar ao overview |
-| `c`, `m` | Ordenar por CPU ou memória |
-| `s`, `r` | Alternar critério de ordenação / inverter ordem |
-| `t`, `u`, `f` | Árvore / somente meu usuário / comando completo ou nome |
-| `i` | Ativar/desativar coleta de I/O por processo |
-| `Enter` | Detalhes do processo selecionado |
-| `k`, `x`, `z` | SIGTERM / SIGKILL / suspender ou retomar processo |
-| `[` / `]`, `←` / `→` | Escolher interface ou disco |
-| `p` ou espaço | Pausar/retomar a amostragem |
-| `+` / `-` | Acelerar/desacelerar, de 0,2 a 10 segundos |
-| `?` ou `h` | Ajuda; setas percorrem diálogos em terminais pequenos |
-| `Ctrl-Z` | Suspender o monitor e devolver o terminal ao shell |
-| `q` ou `Ctrl-C` | Sair |
+| `1` … `6`, `Tab` | Select or cycle through views |
+| `↑` / `↓`, `PgUp` / `PgDn`, `Home` / `End` | Select a process or scroll through the current view's list |
+| `/` | Search by PID, user, name, or command; Enter applies, Esc cancels |
+| `Esc` | Clear the filter, close a dialog, or return to the overview |
+| `c`, `m` | Sort by CPU or memory |
+| `s`, `r` | Cycle through sort criteria / reverse the order |
+| `t`, `u`, `f` | Toggle tree / current user only / full command or name |
+| `i` | Enable/disable per-process I/O collection |
+| `Enter` | Show details for the selected process |
+| `k`, `x`, `z` | SIGTERM / SIGKILL / stop or resume the process |
+| `[` / `]`, `←` / `→` | Select an interface or disk |
+| `p` or Space | Pause/resume sampling |
+| `+` / `-` | Sample faster/slower, from 0.2 to 10 seconds |
+| `?` or `h` | Show help; arrow keys scroll through dialogs on small terminals |
+| `Ctrl-Z` | Suspend the monitor and return the terminal to the shell |
+| `q` or `Ctrl-C` | Quit |
 
-Os atalhos antigos `d` (overview), `y` (CPU) e `n` (rede) continuam disponíveis.
+The original `d` (overview), `y` (CPU), and `n` (network) shortcuts remain available.
 
-Sinais exigem confirmação com **y** e usam **pidfd** para verificar a identidade antes de agir. Isso requer Linux 5.3+ em amd64/arm64; em kernels antigos, o monitor funciona, mas a ação é recusada. PID 1 e o próprio monitor são protegidos. As permissões normais do Linux se aplicam; o programa não eleva privilégios. Colar texto não confirma ações.
+Signals require confirmation with **y** and use **pidfd** to verify process identity before acting. This requires Linux 5.3+ on amd64/arm64; on older kernels, monitoring works, but process actions are refused. PID 1 and the monitor itself are protected. Normal Linux permissions apply; the program does not elevate privileges. Pasted text cannot confirm actions.
 
-## Opções
+## Options
 
 ```bash
 ./bin/nicotop --refresh 0.5
@@ -78,75 +78,75 @@ Sinais exigem confirmação com **y** e usam **pidfd** para verificar a identida
 ./bin/nicotop --help
 ```
 
-`NO_COLOR` também desativa cores. Locales `C` e `POSIX` ativam bordas ASCII automaticamente. Terminais ANSI básicos usam a paleta de 16 cores; terminais de 256 cores usam a paleta neon. `--safe` permanece como opção de compatibilidade: toda coleta já é local.
+`NO_COLOR` also disables colors. The `C` and `POSIX` locales enable ASCII borders automatically. Basic ANSI terminals use a 16-color palette; terminals with 256-color support use the neon palette. `--safe` remains as a compatibility option: all collection is already local.
 
-Sem terminal, inclusive via cron, pipe ou SSH:
+For use without a terminal, including through cron, pipes, or SSH:
 
 ```bash
-# Uma linha JSON por amostra, após estabelecer o baseline.
+# One JSON line per sample, after establishing a baseline.
 ./bin/nicotop --json --count 5 --refresh 1
 
-# Fluxo contínuo; Ctrl-C/SIGTERM encerra.
+# Continuous output; Ctrl-C/SIGTERM stops the stream.
 ./bin/nicotop --json
 
-# Retrato legível, sem códigos ANSI; usa duas amostras separadas por 200 ms.
+# Readable snapshot without ANSI codes; uses two samples 200 ms apart.
 ./bin/nicotop --snapshot 120x40
 ./bin/nicotop --snapshot 100x30 --view disks
 ```
 
-JSON inclui contadores, taxas, identidade dos processos, disponibilidade de PSI/I/O, horário, intervalo medido, duração da coleta e avisos. A primeira linha já tem taxas calculadas. Campos de taxas usam bytes/s; memória e capacidade usam bytes.
+JSON includes counters, rates, process identities, PSI/I/O availability, timestamps, measured intervals, collection duration, and warnings. The first line already contains calculated rates. Throughput fields use bytes/s; memory and capacity fields use bytes.
 
-## Como as métricas são calculadas
+## How metrics are calculated
 
-- CPU usa diferenças de todos os campos relevantes de `/proc/stat`. Guest não é somado novamente, e iowait é exibido separadamente. Na tabela de processos, **100% equivale a um núcleo**; um processo multithread pode ultrapassar 100%.
-- Memória usada é `MemTotal - MemAvailable`. Cache recuperável não é tratado integralmente como memória indisponível. RSS é a estimativa rápida fornecida pelo kernel.
-- Rede, disco e CPU dos processos usam o **tempo monotônico efetivamente transcorrido**. Não há sleeps dentro dos coletores. Interfaces novas e PIDs reutilizados começam com um novo baseline; contadores que diminuem não geram underflow.
-- Setores de `diskstats` são convertidos usando **512 bytes**, independentemente do setor físico. Await e IOPS consideram leituras e escritas. Ocupação mede tempo ativo; não representa toda a capacidade de paralelismo de um NVMe.
-- PSI mostra as médias de 10, 60 e 300 segundos. `some` mede espera de uma ou mais tarefas; `full`, de todas as tarefas não ociosas. Ausência de suporte aparece como indisponível.
-- O agregado de rede soma interfaces exceto loopback. Bridges, túneis e veth podem representar o mesmo tráfego em mais de uma camada; selecione uma interface para analisar seu tráfego. Discos são exibidos individualmente, sem somar partições ou camadas de device-mapper.
-- Uso percentual de filesystem segue `used / (used + available)`, considerando blocos reservados. Montagens remotas, autofs, FUSE e camadas internas de overlay de containers são excluídas.
-- O escopo é o **`/proc` visível ao monitor**. Em containers, CPU/memória podem refletir o host e processos podem estar limitados pelo namespace. Não há normalização por cotas cgroup, métricas GPU ou gerenciamento de serviços.
-- Usuários locais são resolvidos por `/etc/passwd`; outros aparecem por UID. Processos encerrados durante a coleta são ignorados. Restrições como `hidepid` e falta de permissão para `/proc/PID/io` podem limitar os dados.
+- CPU usage comes from differences across all relevant `/proc/stat` fields. Guest time is not counted twice, and iowait is shown separately. In the process table, **100% means one core**; a multithreaded process can exceed 100%.
+- Used memory is `MemTotal - MemAvailable`. Reclaimable cache is not treated entirely as unavailable memory. RSS is the kernel's fast estimate of resident memory.
+- Network, disk, and per-process CPU rates use **actual elapsed monotonic time**. Collectors do not sleep. New interfaces and reused PIDs start with a fresh baseline; decreasing counters do not cause underflow.
+- `diskstats` sectors are converted using **512 bytes**, regardless of physical sector size. Await and IOPS account for reads and writes. Busy time measures device activity; it does not represent the full parallel capacity of an NVMe device.
+- PSI shows averages over 10, 60, and 300 seconds. `some` measures time when one or more tasks are stalled; `full` measures time when all non-idle tasks are stalled. Missing support is shown as unavailable.
+- Aggregate network traffic sums all interfaces except loopback. Bridges, tunnels, and veth devices can represent the same traffic at multiple layers; select an individual interface to inspect its traffic. Disks are shown individually, without summing partitions or device-mapper layers.
+- Filesystem usage percentage is `used / (used + available)`, accounting for reserved blocks. Remote mounts, autofs, FUSE, and internal container overlay mounts are excluded.
+- The scope is **the `/proc` filesystem visible to the monitor**. Inside containers, CPU/memory may reflect the host while processes may be restricted by the namespace. Cgroup quota normalization, GPU metrics, and service management are not implemented.
+- Local usernames are resolved through `/etc/passwd`; other users are shown by UID. Processes that exit during collection are skipped. Restrictions such as `hidepid` or missing access to `/proc/PID/io` can limit the available data.
 
-Referências do kernel: [procfs](https://docs.kernel.org/filesystems/proc.html), [estatísticas de bloco](https://docs.kernel.org/block/stat.html) e [PSI](https://docs.kernel.org/accounting/psi.html).
+Kernel references: [procfs](https://docs.kernel.org/filesystems/proc.html), [block statistics](https://docs.kernel.org/block/stat.html), and [PSI](https://docs.kernel.org/accounting/psi.html).
 
-## Eficiência e organização
+## Efficiency and architecture
 
-O caminho normal lê um registro `stat` por processo e os contadores agregados do kernel. Um buffer reutilizável e parsing com array fixo evitam um `stat()` auxiliar e alocações grandes por PID. Comandos e UIDs têm cache de 5 segundos. A coleta de I/O por processo fica desligada até ser solicitada.
+The normal collection path reads one `stat` record per process and the kernel's aggregate counters. A reusable buffer and parsing with a fixed array avoid an extra `stat()` call and large allocations per PID. Commands and UIDs are cached for 5 seconds. Per-process I/O collection stays disabled until requested.
 
-Filesystems, sensores e frequência usam um único worker com fila limitada e cache de 5 segundos. Um `statfs` bloqueado não trava a interface nem cria workers indefinidamente. A descoberta de dispositivos de bloco é renovada a cada 10 segundos.
+Filesystem, sensor, and frequency collection share a single worker with a bounded queue and a 5-second cache. A blocked `statfs` call does not freeze the interface or cause workers to accumulate. Block device discovery is refreshed every 10 seconds.
 
-A amostragem roda separada do tratamento de teclas. Não há ticks de animação em alta frequência. O renderer escreve apenas linhas alteradas, em uma única escrita por frame, e os históricos têm limite de 240 amostras por série. Pausar impede novas amostragens; uma coleta já iniciada pode terminar em segundo plano.
+Sampling runs separately from keyboard handling. There are no high-frequency animation ticks. The renderer outputs only changed rows in a single write per frame, and history is limited to 240 samples per series. Pausing prevents new sampling; a collection already in progress may finish in the background.
 
 ```text
-cmd/nicotop/          CLI, JSON e snapshot
-internal/monitor/    Coleta, parsing, cache e sinais via pidfd
-internal/ui/         Estado, interação, layout e terminal
-scripts/pty_check.py Teste do binário em pseudoterminal real
-nicotop.sh           Launcher compatível
+cmd/nicotop/         CLI, JSON, and snapshots
+internal/monitor/    Collection, parsing, caching, and pidfd signals
+internal/ui/         State, interaction, layout, and terminal handling
+scripts/pty_check.py  Tests the binary in a real pseudoterminal
+nicotop.sh           Compatibility launcher
 ```
 
-Foram removidos o dashboard de nove caixas, as consultas recorrentes a systemd/Docker/journal, a coleta de histórico de shell/audit e a geolocalização externa de IPs. O código anterior permanece no histórico Git.
+The nine-panel dashboard, repeated systemd/Docker/journal queries, shell/audit history collection, and external IP geolocation have been removed. The previous implementation remains in Git history.
 
-## Verificar
+## Verification
 
 ```bash
-make test          # Contadores, hotplug, PID reuse, árvore, busca, layouts e CLI
-make check         # go vet e detector de data races
-make integration   # PTY: teclado, resize, pausa, sinais, Ctrl-Z e restauração
-make bench         # Parsing, coleta no host e renderização; inclui alocações
+make test          # Counters, hotplug, PID reuse, tree, search, layouts, and CLI
+make check         # go vet and the data race detector
+make integration   # PTY: keyboard, resize, pause, signals, Ctrl-Z, and restoration
+make bench         # Parsing, host collection, and rendering; includes allocations
 ```
 
-Os testes de sinais usam apenas processos descartáveis criados pelo próprio teste. O teste PTY requer Python 3; o detector de races requer o toolchain C usado pelo Go. A captura opcional usa Pillow e fontconfig:
+Signal tests use only disposable processes created by the tests themselves. The PTY test requires Python 3; the race detector requires the C toolchain used by Go. Optional screenshot capture uses Pillow and fontconfig:
 
 ```bash
 python3 scripts/pty_check.py --capture /tmp/nicotop.png
 ```
 
-Compilação sem CGO para outra arquitetura:
+To cross-compile without CGO:
 
 ```bash
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o bin/nicotop-arm64 ./cmd/nicotop
 ```
 
-Benchmarks dependem do número de processos, hardware, permissões e intervalo. Compare em condições equivalentes e use `collection_ms` no JSON para acompanhar o custo no seu próprio host.
+Benchmarks depend on process count, hardware, permissions, and sampling interval. Compare under equivalent conditions and use `collection_ms` in JSON output to track collection cost on your own host.
