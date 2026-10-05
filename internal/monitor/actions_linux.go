@@ -10,15 +10,11 @@ import (
 
 // Signal pins the process with a pidfd before checking its identity. A recycled
 // PID can never redirect an action to a different process. No racy kill fallback.
-func Signal(p Process, sig syscall.Signal) error {
-	if p.PID <= 1 || p.PID == os.Getpid() {
-		return fmt.Errorf("refusing to signal PID %d", p.PID)
+func Signal(p Process, action Action) error {
+	if err := CheckAction(p, action); err != nil {
+		return err
 	}
-	switch sig {
-	case syscall.SIGTERM, syscall.SIGKILL, syscall.SIGSTOP, syscall.SIGCONT:
-	default:
-		return fmt.Errorf("unsupported signal")
-	}
+	sig := map[Action]syscall.Signal{Terminate: syscall.SIGTERM, Kill: syscall.SIGKILL, Stop: syscall.SIGSTOP, Continue: syscall.SIGCONT}[action]
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		return fmt.Errorf("process actions support amd64/arm64 only")
 	}

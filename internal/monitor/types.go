@@ -1,7 +1,14 @@
-// Package monitor collects Linux metrics without executing external commands.
+// Package monitor collects local system metrics on Linux, macOS and Windows.
 package monitor
 
 import "time"
+
+// ProcRoot and SysRoot override Linux filesystems for testing. Other platforms
+// use native host APIs and reject these overrides.
+type Options struct {
+	ProcRoot string
+	SysRoot  string
+}
 
 type CPU struct {
 	Name   string  `json:"name"`
@@ -13,15 +20,29 @@ type CPU struct {
 }
 
 type Memory struct {
-	Total     uint64 `json:"total_bytes"`
-	Available uint64 `json:"available_bytes"`
-	Used      uint64 `json:"used_bytes"`
-	Cached    uint64 `json:"cached_bytes"`
-	Buffers   uint64 `json:"buffers_bytes"`
-	Slab      uint64 `json:"slab_bytes"`
-	Dirty     uint64 `json:"dirty_bytes"`
-	SwapTotal uint64 `json:"swap_total_bytes"`
-	SwapUsed  uint64 `json:"swap_used_bytes"`
+	Darwin    *DarwinMemory `json:"darwin,omitempty"`
+	Total     uint64        `json:"total_bytes"`
+	Available uint64        `json:"available_bytes"`
+	Used      uint64        `json:"used_bytes"`
+	Cached    uint64        `json:"cached_bytes"`
+	Buffers   uint64        `json:"buffers_bytes"`
+	Slab      uint64        `json:"slab_bytes"`
+	Dirty     uint64        `json:"dirty_bytes"`
+	SwapTotal uint64        `json:"swap_total_bytes"`
+	SwapUsed  uint64        `json:"swap_used_bytes"`
+}
+
+// DarwinMemory contains macOS VM categories; these are not Linux slab/buffers
+// or PSI percentages. All byte counters come from HOST_VM_INFO64.
+type DarwinMemory struct {
+	Available     bool   `json:"available"`
+	Free          uint64 `json:"free_bytes"`
+	Active        uint64 `json:"active_bytes"`
+	Inactive      uint64 `json:"inactive_bytes"`
+	Wired         uint64 `json:"wired_bytes"`
+	Compressed    uint64 `json:"compressed_bytes"`
+	Purgeable     uint64 `json:"purgeable_bytes"`
+	PressureLevel string `json:"pressure_level,omitempty"`
 }
 
 type Pressure struct {
@@ -32,6 +53,7 @@ type Pressure struct {
 
 type Network struct {
 	Name                 string  `json:"name"`
+	Loopback             bool    `json:"loopback"`
 	RXBytes              uint64  `json:"rx_bytes"`
 	TXBytes              uint64  `json:"tx_bytes"`
 	RXRate               float64 `json:"rx_bytes_per_second"`
@@ -58,29 +80,53 @@ type Disk struct {
 	readSectors, writeSectors, reads, writes, readMS, writeMS, busyMS, weightedMS uint64
 }
 
+func (n Network) IsLoopback() bool {
+	return n.Loopback || n.Name == "lo" || n.Name == "lo0"
+}
+
+func (s Snapshot) MetricAvailable(name string) bool {
+	for _, unavailable := range s.Unavailable {
+		if unavailable == name {
+			return false
+		}
+	}
+	return true
+}
+
 type Process struct {
-	PID                   int     `json:"pid"`
-	PPID                  int     `json:"ppid"`
-	UID                   uint32  `json:"uid"`
-	User                  string  `json:"user"`
-	Name                  string  `json:"name"`
-	Command               string  `json:"command"`
-	State                 string  `json:"state"`
-	CPU                   float64 `json:"cpu_percent"`
-	RSS                   uint64  `json:"rss_bytes"`
-	Virtual               uint64  `json:"virtual_bytes"`
-	Threads               int     `json:"threads"`
-	Nice                  int     `json:"nice"`
-	Priority              int     `json:"priority"`
-	Processor             int     `json:"processor"`
-	StartTicks            uint64  `json:"start_ticks"`
-	CPUSeconds            float64 `json:"cpu_seconds"`
-	ReadRate              float64 `json:"read_bytes_per_second"`
-	WriteRate             float64 `json:"write_bytes_per_second"`
-	IOAvailable           bool    `json:"io_available"`
-	Ticks                 uint64  `json:"-"`
+	MetricsSource         string   `json:"metrics_source,omitempty"`
+	Unavailable           []string `json:"unavailable_metrics,omitempty"`
+	PID                   int      `json:"pid"`
+	PPID                  int      `json:"ppid"`
+	UID                   uint32   `json:"uid"`
+	User                  string   `json:"user"`
+	Name                  string   `json:"name"`
+	Command               string   `json:"command"`
+	State                 string   `json:"state"`
+	CPU                   float64  `json:"cpu_percent"`
+	RSS                   uint64   `json:"rss_bytes"`
+	Virtual               uint64   `json:"virtual_bytes"`
+	Threads               int      `json:"threads"`
+	Nice                  int      `json:"nice"`
+	Priority              int      `json:"priority"`
+	Processor             int      `json:"processor"`
+	StartTicks            uint64   `json:"start_ticks"`
+	CPUSeconds            float64  `json:"cpu_seconds"`
+	ReadRate              float64  `json:"read_bytes_per_second"`
+	WriteRate             float64  `json:"write_bytes_per_second"`
+	IOAvailable           bool     `json:"io_available"`
+	Ticks                 uint64   `json:"-"`
 	readBytes, writeBytes uint64
 	metadataAt            time.Time
+}
+
+func (p Process) MetricAvailable(name string) bool {
+	for _, unavailable := range p.Unavailable {
+		if unavailable == name {
+			return false
+		}
+	}
+	return true
 }
 
 type Filesystem struct {
@@ -109,6 +155,8 @@ type Slow struct {
 }
 
 type Snapshot struct {
+	OS              string              `json:"os"`
+	Unavailable     []string            `json:"unavailable_metrics,omitempty"`
 	At              time.Time           `json:"at"`
 	Interval        float64             `json:"interval_seconds"`
 	Ready           bool                `json:"rates_ready"`

@@ -39,11 +39,11 @@ func run(args []string, out, errOut io.Writer) error {
 	ascii := f.Bool("ascii", false, "use ASCII borders and graphs")
 	noColor := f.Bool("no-color", false, "disable terminal colors (also honors NO_COLOR)")
 	noAlt := f.Bool("no-alt", false, "draw in the current terminal screen")
-	processIO := f.Bool("process-io", false, "collect per-process disk I/O (extra /proc reads)")
+	processIO := f.Bool("process-io", false, "collect per-process I/O when supported (extra collection)")
 	safe := f.Bool("safe", false, "compatibility flag; all collection is local and unprivileged")
 	showVersion := f.Bool("version", false, "print version")
 	f.Usage = func() {
-		fmt.Fprint(errOut, "EyesOfNico / neon Linux monitor\n\nUsage: nicotop [options]\n\n")
+		fmt.Fprint(errOut, "EyesOfNico / neon system monitor (Linux, macOS, Windows)\n\nUsage: nicotop [options]\n\n")
 		f.PrintDefaults()
 		fmt.Fprintln(errOut, "\nKeys: 1-6 views / search / s sort / t tree / p pause / ? help / q quit")
 	}

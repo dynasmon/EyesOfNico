@@ -15,6 +15,7 @@ import select
 import signal
 import struct
 import subprocess
+import sys
 import termios
 import time
 import unicodedata
@@ -148,7 +149,14 @@ class Session:
         os.write(self.master, data.encode())
         self.pump(delay)
 
-    def expect(self, text):
+    def expect(self, text, timeout=3):
+        # Native sensor setup and the first process batch can take longer on
+        # a busy CI host. Wait for the observable state, not a fixed sleep.
+        deadline = time.monotonic() + timeout
+        while text not in self.screen.text() and time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                break
+            self.pump(.05)
         assert text in self.screen.text(), f"expected {text!r}:\n{self.screen.text()}"
 
     def resize(self, width, height):
@@ -191,7 +199,8 @@ def main():
             session.screen.capture(args.capture)
         assert session.screen.overflows == 0, "dashboard overflow"
 
-        for key, title in [("2", "PRESSURE / PSI"), ("3", "MEMORY"), ("4", "INTERFACES"),
+        pressure_title = "MEMORY PRESSURE" if sys.platform == "darwin" else "PRESSURE / PSI"
+        for key, title in [("2", pressure_title), ("3", "MEMORY"), ("4", "INTERFACES"),
                            ("5", "FILESYSTEMS"), ("6", "PROCESSES")]:
             session.key(key)
             session.expect(title)
@@ -236,8 +245,9 @@ def main():
         session.key("z")
         session.expect(f"SIGSTOP to PID {child.pid}")
         session.key("y", .5)
-        with open(f"/proc/{child.pid}/stat") as handle:
-            assert handle.read().rsplit(")", 1)[1].split()[0] == "T", "stop action failed"
+        # waitpid works on Linux and macOS and only inspects our own child.
+        stopped_pid, status = os.waitpid(child.pid, os.WUNTRACED | os.WNOHANG)
+        assert stopped_pid == child.pid and os.WIFSTOPPED(status), "stop action failed"
         session.key("z")
         session.expect(f"SIGCONT to PID {child.pid}")
         session.key("y", .4)

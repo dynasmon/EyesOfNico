@@ -3,22 +3,15 @@ package ui
 import (
 	"fmt"
 	"os"
-	"syscall"
-	"unsafe"
+
+	"golang.org/x/term"
 )
 
 type Terminal struct {
 	in, out           *os.File
-	saved             syscall.Termios
+	saved             *term.State
+	restoreOutput     func()
 	active, alternate bool
-}
-
-func ioctl(fd uintptr, request uintptr, ptr unsafe.Pointer) error {
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, fd, request, uintptr(ptr))
-	if errno != 0 {
-		return errno
-	}
-	return nil
 }
 
 func OpenTerminal(noAlt bool) (*Terminal, error) {
@@ -26,11 +19,11 @@ func OpenTerminal(noAlt bool) (*Terminal, error) {
 		return nil, fmt.Errorf("TERM=dumb has no cursor control; use --snapshot or --json")
 	}
 	t := &Terminal{in: os.Stdin, out: os.Stdout, alternate: !noAlt}
-	if err := ioctl(t.in.Fd(), syscall.TCGETS, unsafe.Pointer(&t.saved)); err != nil {
+	var err error
+	if t.saved, err = term.GetState(int(t.in.Fd())); err != nil {
 		return nil, fmt.Errorf("interactive mode needs a terminal; use --json or --snapshot")
 	}
-	var output syscall.Termios
-	if err := ioctl(t.out.Fd(), syscall.TCGETS, unsafe.Pointer(&output)); err != nil {
+	if !term.IsTerminal(int(t.out.Fd())) {
 		return nil, fmt.Errorf("stdout is not a terminal; use --json or --snapshot")
 	}
 	if err := t.Resume(); err != nil {
@@ -40,15 +33,12 @@ func OpenTerminal(noAlt bool) (*Terminal, error) {
 }
 
 func (t *Terminal) Resume() error {
-	raw := t.saved
-	raw.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ICRNL | syscall.INLCR | syscall.IGNCR | syscall.INPCK | syscall.ISTRIP | syscall.IXON
-	raw.Oflag &^= syscall.OPOST
-	raw.Cflag &^= syscall.CSIZE | syscall.PARENB
-	raw.Cflag |= syscall.CS8
-	raw.Lflag &^= syscall.ECHO | syscall.ICANON | syscall.IEXTEN | syscall.ISIG
-	raw.Cc[syscall.VMIN] = 1
-	raw.Cc[syscall.VTIME] = 0
-	if err := ioctl(t.in.Fd(), syscall.TCSETS, unsafe.Pointer(&raw)); err != nil {
+	if _, err := term.MakeRaw(int(t.in.Fd())); err != nil {
+		return err
+	}
+	var err error
+	if t.restoreOutput, err = configureOutput(t.out); err != nil {
+		_ = term.Restore(int(t.in.Fd()), t.saved)
 		return err
 	}
 	t.active = true
@@ -76,14 +66,17 @@ func (t *Terminal) Close() {
 		sequence += fmt.Sprintf("\x1b[%d;1H\r\n", h)
 	}
 	_, _ = t.out.WriteString(sequence)
-	_ = ioctl(t.in.Fd(), syscall.TCSETS, unsafe.Pointer(&t.saved))
+	if t.restoreOutput != nil {
+		t.restoreOutput()
+	}
+	_ = term.Restore(int(t.in.Fd()), t.saved)
 }
 
 func (t *Terminal) Size() (int, int) {
-	var size struct{ Rows, Cols, X, Y uint16 }
-	if err := ioctl(t.out.Fd(), syscall.TIOCGWINSZ, unsafe.Pointer(&size)); err != nil || size.Cols == 0 || size.Rows == 0 {
+	w, h, err := term.GetSize(int(t.out.Fd()))
+	if err != nil || w <= 0 || h <= 0 {
 		return 80, 24
 	}
 	// Guard against pathological PTYs allocating enormous screens.
-	return min(int(size.Cols), 1000), min(int(size.Rows), 500)
+	return min(w, 1000), min(h, 500)
 }

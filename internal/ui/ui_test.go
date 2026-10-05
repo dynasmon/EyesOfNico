@@ -182,7 +182,7 @@ func TestDecoderFragmentationAndPaste(t *testing.T) {
 func TestInteractionAndCapturedIdentity(t *testing.T) {
 	s := demoState()
 	s.View = 5
-	s.Handle(Key{Name: "text", Text: "k"})
+	s.Handle(Key{Name: "text", Text: "x"})
 	target := s.Confirm
 	if target == nil || target.PID != 100 {
 		t.Fatal("signal did not capture selection")
