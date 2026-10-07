@@ -43,10 +43,19 @@ class Screen:
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.pending = ""
         self.overflows = 0
+        self.resize_to = None
+        self.redraw_pending = False
         self.clear()
 
     def clear(self):
         self.rows = [[(" ", self.fg, self.bg) for _ in range(self.width)] for _ in range(self.height)]
+
+    def resize_on_redraw(self, width, height):
+        # Bytes already queued in the PTY still belong to the old dimensions.
+        # Keep the parser (including partial UTF-8/ANSI sequences) until the
+        # renderer's clear-screen sequence starts the resized frame.
+        self.resize_to = (width, height)
+        self.redraw_pending = True
 
     def feed(self, data):
         self.pending += self.decoder.decode(data)
@@ -66,6 +75,10 @@ class Screen:
                     self.y = max(0, (values[0] or 1) - 1)
                     self.x = max(0, (values[1] if len(values) > 1 else 1) - 1)
                 elif op == "J" and values[0] == 2:
+                    if self.resize_to is not None:
+                        self.width, self.height = self.resize_to
+                        self.resize_to = None
+                        self.overflows = 0
                     self.clear()
                 elif op == "m":
                     i = 0
@@ -105,6 +118,9 @@ class Screen:
                 if width == 2:
                     self.rows[self.y][self.x+1] = ("", self.fg, self.bg)
             self.x += width
+            # A full redraw writes every row, ending at the bottom-right cell.
+            if self.resize_to is None and self.y == self.height - 1 and self.x == self.width:
+                self.redraw_pending = False
 
     def text(self):
         return "\n".join("".join(cell[0] for cell in row) for row in self.rows)
@@ -159,11 +175,16 @@ class Session:
             self.pump(.05)
         assert text in self.screen.text(), f"expected {text!r}:\n{self.screen.text()}"
 
-    def resize(self, width, height):
-        self.screen = Screen(width, height)
+    def resize(self, width, height, timeout=3):
+        self.screen.resize_on_redraw(width, height)
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
         os.kill(self.process.pid, signal.SIGWINCH)
-        self.pump()
+        deadline = time.monotonic() + timeout
+        while self.screen.redraw_pending and time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                break
+            self.pump(.05)
+        assert not self.screen.redraw_pending, f"no complete redraw at {width}x{height}:\n{self.screen.text()}"
 
     def finish(self, via_signal=False):
         if via_signal:

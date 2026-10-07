@@ -6,37 +6,43 @@ A terminal monitor for **Linux, macOS, and Windows**, with a neon magenta → pu
 
 Requirements: Go **1.24+** to build and a terminal with ANSI cursor control for interactive use. Dependencies are downloaded by Go on the first build and compiled into the binary. The compiled monitor does not require Go, Bash, ncurses, Docker, or systemd. Linux uses `/proc` and optional `/sys` metrics; macOS and Windows use native system APIs. macOS also uses its built-in `/bin/ps` to fill basic statistics for processes whose native API access is restricted. On Windows, use Windows Terminal or a Windows 10+ console.
 
-On Linux or macOS (including the stock macOS shell):
+On Linux or macOS, install once from the repository:
 
 ```bash
-./nicotop.sh
+make install PREFIX="$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+nicotop
 ```
 
-The launcher builds on the first run and rebuilds when source files change. You can also build and run the binary directly:
+You can then run `nicotop` from any directory. If `~/.local/bin` is not already in your `PATH`, add the `export` line to your shell configuration (`~/.bashrc` for Bash or `~/.zshrc` for Zsh) once. Run the install command again after updating the source. For a system-wide installation, use `sudo make install` (the default prefix is `/usr/local`).
+
+For development, `./nicotop.sh` builds on the first run and rebuilds when source files change, without a build banner. You can also build and run the binary directly:
 
 ```bash
 make build
 ./bin/nicotop
 ```
 
-On Windows, from PowerShell:
+On Windows, install from PowerShell in the repository:
 
 ```powershell
-.\nicotop.ps1
-# Or build and run directly, without Make or a script launcher:
+go install -trimpath ./cmd/nicotop
+$bin = go env GOBIN
+if (-not $bin) { $bin = Join-Path (go env GOPATH) 'bin' }
+$env:Path = "$bin;$env:Path"
+nicotop
+```
+
+Add that bin directory to your user `Path` in Windows Environment Variables once to make `nicotop` available in future terminals. Run `go install -trimpath ./cmd/nicotop` again after updating the source.
+
+For development, `.\nicotop.ps1` rebuilds as needed without a build banner. If your PowerShell policy blocks scripts, build and run directly:
+
+```powershell
 go build -trimpath -o bin/nicotop.exe ./cmd/nicotop
 .\bin\nicotop.exe
 ```
 
-If your PowerShell policy blocks scripts, use the direct build commands above. All command-line options below also work with `nicotop.exe`.
-
-To install the binary on Linux or macOS:
-
-```bash
-make install PREFIX="$HOME/.local"
-# Or install system-wide:
-sudo make install
-```
+All command-line options below also work with `nicotop.exe`.
 
 The interface adapts to the terminal's actual size. **120×40** fits all panels; at **80×24**, the overview prioritizes the system summary and processes. The minimum is **40×12**. Smaller terminals display a resize prompt. History is preserved when resizing or switching views.
 
@@ -109,12 +115,12 @@ Process actions require confirmation with **y** and recheck the captured process
 ## Options
 
 ```bash
-./bin/nicotop --refresh 0.5
-./bin/nicotop --view processes --sort mem --filter postgres
-./bin/nicotop --process-io
-./bin/nicotop --ascii --no-color
-./bin/nicotop --no-alt
-./bin/nicotop --help
+nicotop --refresh 0.5
+nicotop --view processes --sort mem --filter postgres
+nicotop --process-io
+nicotop --ascii --no-color
+nicotop --no-alt
+nicotop --help
 ```
 
 `NO_COLOR` also disables colors. The `C` and `POSIX` locales enable ASCII borders automatically. Basic ANSI terminals use a 16-color palette; terminals with 256-color support use the neon palette. `--safe` remains as a compatibility option: all collection is already local.
@@ -123,14 +129,14 @@ For use without a terminal, including through cron, pipes, or SSH:
 
 ```bash
 # One JSON line per sample, after establishing a baseline.
-./bin/nicotop --json --count 5 --refresh 1
+nicotop --json --count 5 --refresh 1
 
 # Continuous output; Ctrl-C/SIGTERM stops the stream.
-./bin/nicotop --json
+nicotop --json
 
 # Readable snapshot without ANSI codes; uses two samples 200 ms apart.
-./bin/nicotop --snapshot 120x40
-./bin/nicotop --snapshot 100x30 --view disks
+nicotop --snapshot 120x40
+nicotop --snapshot 100x30 --view disks
 ```
 
 JSON includes the `os` (`linux`, `darwin`, or `windows`), counters, rates, process identities, metric availability, timestamps, measured intervals, collection duration, and warnings. The first line already contains calculated rates. Throughput fields use bytes/s; memory and capacity fields use bytes. `start_ticks` is an opaque birth token: Linux clock ticks, macOS Unix microseconds, Windows Unix milliseconds. Compare it together with the PID within one host/platform, rather than converting it with a universal clock rate.
@@ -174,7 +180,7 @@ The nine-panel dashboard, repeated systemd/Docker/journal queries, shell/audit h
 ```bash
 make test          # Counters, hotplug, PID reuse, tree, search, layouts, and CLI
 make check         # go vet and the data race detector
-make integration   # PTY: keyboard, resize, pause, signals, Ctrl-Z, and restoration
+make integration   # PTY regression tests, keyboard, resize, pause, signals, Ctrl-Z, restoration
 make bench         # Parsing, host collection, and rendering; includes allocations
 ```
 

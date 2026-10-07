@@ -18,6 +18,7 @@ bench:
 	$(GO) test -run='^$$' -bench=. -benchmem ./internal/...
 
 integration: build
+	python3 -m unittest discover -s scripts -p 'test_*.py'
 	python3 scripts/pty_check.py $(BINARY)
 
 install: build

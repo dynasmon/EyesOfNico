@@ -12,7 +12,6 @@ if ($needsBuild) {
     if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
         throw 'nicotop: install Go 1.24+ or use a prebuilt nicotop.exe.'
     }
-    Write-Host 'Building EyesOfNico...'
     $previousCGO = $env:CGO_ENABLED
     Push-Location $PSScriptRoot
     try {

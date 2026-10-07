@@ -14,7 +14,6 @@ if [ ! -x "$binary" ] || [ "$needs_build" -eq 1 ]; then
     printf '%s\n' 'nicotop: install Go 1.24+ and run make build, or use a prebuilt nicotop binary.' >&2
     exit 1
   fi
-  printf '%s\n' 'Building EyesOfNico...' >&2
   (cd "$project_dir" && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$binary" ./cmd/nicotop)
 fi
 
