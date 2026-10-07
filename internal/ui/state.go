@@ -4,10 +4,11 @@ import (
 	"eyesofnico/internal/monitor"
 	"fmt"
 	"os"
+	"os/user"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -63,14 +64,27 @@ type State struct {
 	NetHistory, DiskHistory                                       map[string]*PairHistory
 	Help, Details                                                 bool
 	Confirm                                                       *monitor.Process
-	Signal                                                        syscall.Signal
+	Signal                                                        monitor.Action
+	ownUID                                                        uint32
+	ownUser                                                       string
 	Message                                                       string
 	LastError                                                     string
 	messageUntil                                                  time.Time
 }
 
 func NewState(interval time.Duration, ascii bool) *State {
-	return &State{Interval: interval, ASCII: ascii, Sort: "cpu", FullCommand: true, PageSize: 10, NetHistory: make(map[string]*PairHistory), DiskHistory: make(map[string]*PairHistory)}
+	s := &State{Interval: interval, ASCII: ascii, Sort: "cpu", FullCommand: true, PageSize: 10, NetHistory: make(map[string]*PairHistory), DiskHistory: make(map[string]*PairHistory), ownUID: uint32(os.Getuid())}
+	if current, err := user.Current(); err == nil {
+		s.ownUser = current.Username
+	}
+	return s
+}
+
+func (s *State) owns(p monitor.Process) bool {
+	if runtime.GOOS == "windows" {
+		return s.ownUser != "" && strings.EqualFold(p.User, s.ownUser)
+	}
+	return p.UID == s.ownUID
 }
 
 func (s *State) Accept(snapshot monitor.Snapshot) {
@@ -90,7 +104,7 @@ func (s *State) Accept(snapshot monitor.Snapshot) {
 			}
 			h.A.Add(n.RXRate)
 			h.B.Add(n.TXRate)
-			if n.Name != "lo" {
+			if !n.IsLoopback() {
 				rx += n.RXRate
 				tx += n.TXRate
 			}
@@ -198,12 +212,11 @@ func (s *State) less(a, b monitor.Process) bool {
 
 func (s *State) Rebuild() {
 	query := strings.ToLower(s.Filter)
-	uid := uint32(os.Getuid())
 	s.Rows = s.Rows[:0]
 	// The usual flat view needs no PID maps or ancestry graph.
 	if !s.Tree {
 		for _, p := range s.Snapshot.Processes {
-			if s.OwnOnly && p.UID != uid {
+			if s.OwnOnly && !s.owns(p) {
 				continue
 			}
 			if query != "" && !strings.Contains(strings.ToLower(p.Command+" "+p.Name+" "+p.User+" "+strconv.Itoa(p.PID)), query) {
@@ -218,7 +231,7 @@ func (s *State) Rebuild() {
 	all := make(map[int]monitor.Process, len(s.Snapshot.Processes))
 	matches := make(map[int]bool)
 	for _, p := range s.Snapshot.Processes {
-		if s.OwnOnly && p.UID != uid {
+		if s.OwnOnly && !s.owns(p) {
 			continue
 		}
 		all[p.PID] = p
@@ -582,15 +595,19 @@ func (s *State) Handle(k Key) (quit, suspend bool) {
 			if !ok {
 				return
 			}
-			s.Signal = syscall.SIGTERM
+			s.Signal = monitor.Terminate
 			if t == "x" {
-				s.Signal = syscall.SIGKILL
+				s.Signal = monitor.Kill
 			}
 			if t == "z" {
-				s.Signal = syscall.SIGSTOP
+				s.Signal = monitor.Stop
 				if p.State == "T" || p.State == "t" {
-					s.Signal = syscall.SIGCONT
+					s.Signal = monitor.Continue
 				}
+			}
+			if err := monitor.CheckAction(p, s.Signal); err != nil {
+				s.notify(err.Error())
+				break
 			}
 			s.Confirm = &p
 		}
@@ -598,16 +615,4 @@ func (s *State) Handle(k Key) (quit, suspend bool) {
 	return
 }
 
-func signalName(sig syscall.Signal) string {
-	switch sig {
-	case syscall.SIGTERM:
-		return "SIGTERM"
-	case syscall.SIGKILL:
-		return "SIGKILL"
-	case syscall.SIGSTOP:
-		return "SIGSTOP"
-	case syscall.SIGCONT:
-		return "SIGCONT"
-	}
-	return "signal"
-}
+func signalName(action monitor.Action) string { return action.String() }

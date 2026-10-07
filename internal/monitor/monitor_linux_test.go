@@ -222,13 +222,13 @@ func TestSignalPinnedIdentity(t *testing.T) {
 	}
 	wrong := p
 	wrong.StartTicks++
-	if err = Signal(wrong, syscall.SIGTERM); err == nil {
+	if err = Signal(wrong, Terminate); err == nil {
 		t.Fatal("signalled wrong identity")
 	}
 	if err = cmd.Process.Signal(syscall.Signal(0)); err != nil {
 		t.Fatal("wrong-identity check killed child")
 	}
-	if err = Signal(p, syscall.SIGTERM); err != nil {
+	if err = Signal(p, Terminate); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
@@ -238,7 +238,7 @@ func TestSignalPinnedIdentity(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("SIGTERM did not reach child")
 	}
-	if err = Signal(Process{PID: 1}, syscall.SIGTERM); err == nil {
+	if err = Signal(Process{PID: 1}, Terminate); err == nil {
 		t.Fatal("PID 1 was not protected")
 	}
 }

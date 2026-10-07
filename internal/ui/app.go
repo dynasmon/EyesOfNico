@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -28,7 +27,7 @@ type inputResult struct {
 
 func Run(c *monitor.Collector, opts Options) error {
 	signals := make(chan os.Signal, 8)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGWINCH, syscall.SIGTSTP, syscall.SIGCONT)
+	watchSignals(signals)
 	defer signal.Stop(signals)
 	term, err := OpenTerminal(opts.NoAlt)
 	if err != nil {
@@ -97,20 +96,13 @@ func Run(c *monitor.Collector, opts Options) error {
 	defer escapeTimer.Stop()
 	var decoder Decoder
 	suspend := func() error {
-		term.Close()
-		if err := syscall.Kill(os.Getpid(), syscall.SIGSTOP); err != nil {
-			return err
+		if !supportsSuspend {
+			s.notify("Ctrl-Z suspension is unavailable on Windows; p pauses sampling")
+			return nil
 		}
-		// In a multithreaded process kill(SIGSTOP) may return before another
-		// thread completes the group stop. Restore raw mode only after SIGCONT.
-		for {
-			sig := <-signals
-			if sig == syscall.SIGCONT {
-				break
-			}
-			if sig == syscall.SIGTERM || sig == syscall.SIGINT || sig == syscall.SIGHUP || sig == syscall.SIGQUIT {
-				return io.EOF
-			}
+		term.Close()
+		if err := suspendProcess(signals); err != nil {
+			return err
 		}
 		if err := term.Resume(); err != nil {
 			return err
@@ -163,18 +155,16 @@ func Run(c *monitor.Collector, opts Options) error {
 		}
 		select {
 		case sig := <-signals:
-			switch sig {
-			case syscall.SIGWINCH:
+			switch classifySignal(sig) {
+			case "redraw":
 				renderer.Invalidate()
-			case syscall.SIGTSTP:
+			case "suspend":
 				if err := suspend(); err != nil {
 					if err == io.EOF {
 						return nil
 					}
 					return err
 				}
-			case syscall.SIGCONT:
-				renderer.Invalidate()
 			default:
 				return nil
 			}

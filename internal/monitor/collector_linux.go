@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-type Options struct {
-	ProcRoot string
-	SysRoot  string
-}
-
 // Collector has one owner. Call Sample from a single goroutine.
 type Collector struct {
 	proc, sys, host, kernel, model string
@@ -120,7 +115,7 @@ func readUsers() map[uint32]string {
 
 func (c *Collector) Sample(processIO bool) (Snapshot, error) {
 	start := time.Now()
-	s := Snapshot{At: start, Host: c.host, Kernel: c.kernel, CPUModel: c.model, Pressure: make(map[string]Pressure)}
+	s := Snapshot{At: start, OS: "linux", Host: c.host, Kernel: c.kernel, CPUModel: c.model, Pressure: make(map[string]Pressure)}
 	if !c.last.IsZero() {
 		s.Interval = start.Sub(c.last).Seconds()
 		s.Ready = true
@@ -186,6 +181,7 @@ func (c *Collector) Sample(processIO bool) (Snapshot, error) {
 		next := make(map[string]Network, len(s.Networks))
 		for i := range s.Networks {
 			n := &s.Networks[i]
+			n.Loopback = n.Name == "lo"
 			if old, ok := c.networks[n.Name]; ok && s.Ready {
 				n.Ready = true
 				n.RXRate = rate(n.RXBytes, old.RXBytes, s.Interval)

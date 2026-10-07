@@ -9,22 +9,6 @@ import (
 	"time"
 )
 
-func (c *Collector) slowWorker() {
-	for {
-		select {
-		case <-c.stop:
-			return
-		case <-c.slowRequest:
-		}
-		result := c.collectSlow()
-		select {
-		case <-c.stop:
-			return
-		case c.slowResult <- result:
-		}
-	}
-}
-
 var mountEscapes = strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
 
 func localMounts(data string) []Filesystem {
