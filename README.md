@@ -4,6 +4,10 @@ A terminal monitor for **Linux, macOS, and Windows**, with a neon magenta → pu
 
 ## Getting started
 
+Download a ready-to-run package from [Releases](https://github.com/dynasmon/EyesOfNico/releases/latest). Choose `amd64` for Intel/AMD or `arm64` for ARM / Apple Silicon. Extract the archive and run `./nicotop` in a Linux/macOS terminal or `.\nicotop.exe` in Windows Terminal / PowerShell. **Go is not required to run a release binary.**
+
+### Building from source
+
 Requirements: Go **1.24+** to build and a terminal with ANSI cursor control for interactive use. Dependencies are downloaded by Go on the first build and compiled into the binary. The compiled monitor does not require Go, Bash, ncurses, Docker, or systemd. Linux uses `/proc` and optional `/sys` metrics; macOS and Windows use native system APIs. macOS also uses its built-in `/bin/ps` to fill basic statistics for processes whose native API access is restricted. On Windows, use Windows Terminal or a Windows 10+ console.
 
 On Linux or macOS, install once from the repository:
@@ -68,18 +72,32 @@ Availability differs by platform:
 | Load averages | Yes | Yes | Unavailable |
 | PSI, iowait/steal, forks/context-switch rate, Linux buffers/slab/dirty | Kernel-dependent | Unavailable; omitted from Mac panels | Unavailable |
 | File-backed cache, wired/compressed/active/inactive/purgeable memory | Platform-specific | Native VM counters | Unavailable |
-| Memory pressure level (normal/warning/critical) | PSI percentages instead | Yes | Unavailable |
-| Temperature sensors | Kernel-dependent | Hardware/OS-dependent, Intel and Apple Silicon | Unavailable |
-| Disk busy/queue, physical device size | Kernel-dependent | Unavailable; panels show IOPS/latency | Unavailable |
-| Disk latency | Yes | Yes | Unavailable |
-| Process state, nice/priority | Yes | Yes | Unavailable |
+| Memory pressure level (normal/warning/critical) | PSI percentages instead | Yes | No equivalent; shows commit total/limit instead |
+| System cache, commit total/limit/peak, paged/nonpaged pools, handles | Platform-specific | Platform-specific | Native performance counters |
+| Temperature sensors | Kernel-dependent | Hardware/OS-dependent, Intel and Apple Silicon | ACPI thermal zones; optional LibreHardwareMonitor for CPU/GPU and other sensors |
+| Disk busy/queue, physical device size | Kernel-dependent | Unavailable; panels show IOPS/latency | Busy and instantaneous queued requests; physical size unavailable |
+| Disk latency | Yes | Yes | Yes, native volume counters |
+| Process state, nice/priority | Yes | Yes | Native base priority; Unix state/nice unavailable |
 | Per-process I/O | Disk bytes, permission-dependent | Disk bytes, permission-dependent | OS I/O bytes (may include non-disk I/O) |
 | Process actions | TERM, KILL, STOP, CONT | TERM, KILL, STOP, CONT | Forced termination only (`x`) |
 | Ctrl-Z monitor suspension | Yes | Yes | Unavailable; use `p` to pause |
 
-Unavailable fields display `n/a` or `unavailable` (process state uses `?`). JSON lists unsupported metrics in `unavailable_metrics` at snapshot and process level; their numeric placeholders must not be interpreted as measured zeroes. PSI and per-process I/O also retain their individual availability flags. Windows does not expose Unix UIDs: the current-user filter compares account names. Permissions can hide protected processes or some of their metrics on every platform. Thread and running-process totals include only accessible counters. Frequency may represent a nominal/maximum value on macOS and Windows, rather than a live clock.
+Unavailable fields display `n/a` or `unavailable` (process state uses `?`). JSON lists unsupported metrics in `unavailable_metrics` at snapshot and process level; their numeric placeholders must not be interpreted as measured zeroes. PSI and per-process I/O also retain their individual availability flags. Windows does not expose Unix UIDs: the current-user filter compares account names. Permissions can hide protected processes or some of their metrics on every platform. Running-process totals include only accessible counters; Windows exposes separate system process/thread totals in `memory.windows`. Frequency may represent a nominal/maximum value on macOS and Windows, rather than a live clock.
 
 The process table supports incremental search, sorting, a process tree, a current-user filter, and process details. Once you navigate, the selection follows the process identity even when its position changes. Tree searches retain the ancestors needed to understand the hierarchy.
+
+### Windows metrics and temperature sensors
+
+Windows panels show native system cache, committed memory and its limit/peak, paged/nonpaged kernel pools, handles, process/thread totals, process base priority, and volume activity/latency. Linux-only PSI, load averages, iowait/steal, forks, slab/buffers, Unix process state/nice, and inode columns are omitted. Missing readings from an actual supported API still remain explicitly unavailable.
+
+Temperature support in v2.0.0 was not implemented on Windows. Starting with v2.0.1, the collector reads:
+
+- **LibreHardwareMonitor:** keep [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases) running and enable its web server on port **8085**. EyesOfNico automatically reads `http://127.0.0.1:8085/data.json` every five seconds. This exposes the CPU, GPU, motherboard, and drive temperatures that LibreHardwareMonitor can read on your hardware. Current LibreHardwareMonitor versions use this server instead of their former WMI provider. The integration expects the default port and no HTTP authentication; it does not follow redirects or use HTTP proxies.
+- **ACPI fallback:** if no valid hardware-monitor readings are available, query Windows thermal zones. These are firmware measurements and are labeled **ACPI**, not CPU core temperatures. Some PCs expose none, deny access, or report firmware values that are not useful for CPU monitoring.
+
+The interface identifies the temperature source and explains how to enable a provider when no readings are available. It rejects missing/invalid values and marks old samples as stale. The JSON `slow.sensor_status` and each sensor's `source` describe the source. EyesOfNico does not install a driver, start a service, or elevate privileges. LibreHardwareMonitor may need administrator access and its own hardware support components. The monitor itself still runs without Go; temperature coverage depends on the hardware/provider. Windows does not supply a universal CPU-temperature API; even [Win32_TemperatureProbe does not populate live readings](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-temperatureprobe).
+
+Windows disk rows represent fixed local volumes (for example `C:`), not necessarily distinct physical disks. Busy time uses native idle-time deltas; latency uses 100 ns read/write counters converted to milliseconds. **QUEUED** is the instantaneous queue depth (`in_flight` in JSON), not Linux's average queue length; `disk_queue` remains in `unavailable_metrics`. Protected processes may still hide individual metrics, which display `n/a` rather than a fabricated zero. System process/thread totals come from Windows performance counters when available; the process table includes only processes the collector can identify.
 
 ### Why some metrics may be unavailable on macOS
 
@@ -146,6 +164,7 @@ JSON includes the `os` (`linux`, `darwin`, or `windows`), counters, rates, proce
 - CPU usage comes from differences in OS counters (`/proc/stat` on Linux, Mach on macOS, Windows processor counters). Guest and interrupt time are not counted twice. In the process table, **100% means one core**; a multithreaded process can exceed 100%.
 - Used memory is total minus the OS estimate of available memory (`MemTotal - MemAvailable` on Linux). RSS is the OS estimate of resident memory.
 - On macOS, `memory.darwin` contains native VM counters and the pressure level. `cached_bytes` is the file-backed page count, including active file-backed pages; it is not a claim that every cached byte is immediately reclaimable. Compressed bytes are the physical pages occupied by the compressor. Speculative pages are already included in free memory and are not added twice.
+- On Windows, `memory.windows` contains native commit totals/limit/peak, kernel pools, and system handle/process/thread counts. `cached_bytes` is the Windows system cache (standby list plus system working set). Commit is backed by RAM or page files; it is not page-file usage or a PSI percentage.
 - Network, disk, and per-process CPU rates use **actual elapsed monotonic time**. Collectors do not sleep. New interfaces and reused PIDs start with a fresh baseline; decreasing counters do not cause underflow.
 - Linux `diskstats` sectors are converted using **512 bytes**, regardless of physical sector size. macOS/Windows use byte counters directly. Await and IOPS account for reads and writes. Linux busy time measures device activity; it does not represent the full parallel capacity of an NVMe device.
 - PSI shows averages over 10, 60, and 300 seconds. `some` measures time when one or more tasks are stalled; `full` measures time when all non-idle tasks are stalled. Missing support is shown as unavailable.

@@ -66,6 +66,13 @@ func (s *State) metric(name, format string, args ...any) string {
 }
 
 func (s *State) loadText() string {
+	if s.Snapshot.OS == "windows" {
+		processes, threads := len(s.Snapshot.Processes), s.Snapshot.Threads
+		if m := s.Snapshot.Memory.Windows; m != nil && m.Available {
+			processes, threads = int(m.Processes), int(m.Threads)
+		}
+		return fmt.Sprintf("%d processes / %d threads", processes, threads)
+	}
 	return "Load " + s.metric("load", "%.2f %.2f %.2f", s.Snapshot.Load[0], s.Snapshot.Load[1], s.Snapshot.Load[2])
 }
 
@@ -129,6 +136,9 @@ func (s *State) Draw(screen *Screen) {
 		if r.H >= 20 {
 			s.cpuPanel(screen, Rect{r.X, r.Y, r.W, r.H - 8}, true)
 			s.pressurePanel(screen, Rect{r.X, r.Y + r.H - 8, r.W, 8})
+		} else if s.Snapshot.OS == "windows" && r.H >= 16 {
+			s.cpuPanel(screen, Rect{r.X, r.Y, r.W, r.H - 7}, true)
+			s.pressurePanel(screen, Rect{r.X, r.Y + r.H - 7, r.W, 7})
 		} else {
 			s.cpuPanel(screen, r, true)
 		}
@@ -155,6 +165,9 @@ func (s *State) Draw(screen *Screen) {
 		s.overview(screen, r)
 	}
 	footer := fmt.Sprintf("%d processes / %d threads / %s running / %s blocked   up %s   collect %.1fms", len(s.Snapshot.Processes), s.Snapshot.Threads, s.metric("process_state", "%d", s.Snapshot.Running), s.metric("process_state", "%d", s.Snapshot.Blocked), uptime(s.Snapshot.Uptime), s.Snapshot.CollectMS)
+	if s.Snapshot.OS == "windows" {
+		footer = fmt.Sprintf("%s / up %s / collect %.1fms", s.loadText(), uptime(s.Snapshot.Uptime), s.Snapshot.CollectMS)
+	}
 	st := Muted
 	if len(s.Snapshot.Warnings) > 0 {
 		footer = s.Snapshot.Warnings[0]
@@ -296,7 +309,7 @@ func (s *State) cpuPanel(screen *Screen, r Rect, full bool) {
 	y := in.Y + 2 + graphH
 	if y < in.Y+in.H {
 		line := s.loadText()
-		if s.Snapshot.OS != "darwin" {
+		if s.Snapshot.OS != "darwin" && s.Snapshot.OS != "windows" {
 			line += " / wait " + s.metric("cpu_iowait", "%.1f%%", cp.Wait) + "  steal " + s.metric("cpu_steal", "%.1f%%", cp.Steal)
 		}
 		screen.Text(in.X, y, in.W, line, Cyan)
@@ -304,7 +317,7 @@ func (s *State) cpuPanel(screen *Screen, r Rect, full bool) {
 	}
 	if full && y < in.Y+in.H {
 		line := fmt.Sprintf("User %.1f%%  system %.1f%%", cp.User, cp.System)
-		if s.Snapshot.OS != "darwin" {
+		if s.Snapshot.OS != "darwin" && s.Snapshot.OS != "windows" {
 			line += fmt.Sprintf("  ctx %s  forks %s", s.metric("context_switches", "%.0f/s", s.Snapshot.ContextSwitches), s.metric("forks", "%.0f/s", s.Snapshot.Forks))
 		}
 		screen.Text(in.X, y, in.W, line, Muted)
@@ -356,6 +369,9 @@ func (s *State) memoryPanel(screen *Screen, r Rect) {
 		if !s.Snapshot.MetricAvailable("swap") {
 			t = "Swap unavailable"
 		}
+		if s.Snapshot.OS == "windows" {
+			t = strings.ReplaceAll(strings.ReplaceAll(t, "SWAP", "PAGE FILE"), "Swap", "Page file")
+		}
 		screen.Text(in.X, in.Y+3, in.W, t, White)
 	}
 	if in.H > 4 {
@@ -369,6 +385,9 @@ func (s *State) memoryPanel(screen *Screen, r Rect) {
 				line = fmt.Sprintf("Wired %s  compressed %s", bytes(float64(m.Darwin.Wired)), bytes(float64(m.Darwin.Compressed)))
 			}
 		}
+		if s.Snapshot.OS == "windows" {
+			line = s.windowsMemoryLine(0)
+		}
 		screen.Text(in.X, in.Y+5, in.W, line, Muted)
 	}
 	if in.H > 6 {
@@ -378,6 +397,9 @@ func (s *State) memoryPanel(screen *Screen, r Rect) {
 			if m.Darwin != nil && m.Darwin.Available {
 				line = fmt.Sprintf("Active %s  inactive %s", bytes(float64(m.Darwin.Active)), bytes(float64(m.Darwin.Inactive)))
 			}
+		}
+		if s.Snapshot.OS == "windows" {
+			line = s.windowsMemoryLine(1)
 		}
 		screen.Text(in.X, in.Y+6, in.W, line, Muted)
 	}
@@ -390,6 +412,9 @@ func (s *State) memoryPanel(screen *Screen, r Rect) {
 		if s.Snapshot.OS == "darwin" {
 			text = "Memory pressure: " + s.darwinPressure()
 		}
+		if s.Snapshot.OS == "windows" {
+			text = s.windowsMemoryLine(2)
+		}
 		screen.Text(in.X, in.Y+7, in.W, text, Cyan)
 	}
 	if in.H > 9 {
@@ -398,6 +423,10 @@ func (s *State) memoryPanel(screen *Screen, r Rect) {
 }
 
 func (s *State) pressurePanel(screen *Screen, r Rect) {
+	if s.Snapshot.OS == "windows" {
+		s.windowsSystemPanel(screen, r)
+		return
+	}
 	if s.Snapshot.OS == "darwin" {
 		s.darwinPressurePanel(screen, r)
 		return
@@ -617,6 +646,9 @@ func (s *State) diskFull(screen *Screen, r Rect) {
 				header = "DEVICE      READ/s   WRITE/s    IOPS"
 			}
 		}
+		if s.Snapshot.OS == "windows" {
+			header = strings.ReplaceAll(header, "QUEUE", "QUEUED")
+		}
 		screen.Text(in.X, in.Y, in.W, header, Table)
 		idx := 0
 		for i, v := range s.Snapshot.Disks {
@@ -632,7 +664,11 @@ func (s *State) diskFull(screen *Screen, r Rect) {
 				st = Selected
 			}
 			busy := s.metric("disk_busy", "%.1f", v.Busy)
-			line := fmt.Sprintf("%s %9s %9s %8.0f %7s %9s %8s", pad(v.Name, 12), shortBytes(v.ReadRate), shortBytes(v.WriteRate), v.IOPS, busy, s.metric("disk_await", "%.2f", v.Await), s.metric("disk_queue", "%.2f", v.Queue))
+			queue := s.metric("disk_queue", "%.2f", v.Queue)
+			if s.Snapshot.OS == "windows" {
+				queue = s.metric("disk_in_flight", "%d", v.InFlight)
+			}
+			line := fmt.Sprintf("%s %9s %9s %8.0f %7s %9s %8s", pad(v.Name, 12), shortBytes(v.ReadRate), shortBytes(v.WriteRate), v.IOPS, busy, s.metric("disk_await", "%.2f", v.Await), queue)
 			if in.W < 65 {
 				line = fmt.Sprintf("%s %8s %8s %6s", pad(v.Name, 9), shortBytes(v.ReadRate), shortBytes(v.WriteRate), busy)
 			}
@@ -654,6 +690,9 @@ func (s *State) diskFull(screen *Screen, r Rect) {
 		return
 	}
 	header := "MOUNT                       USED      TOTAL       FREE    USE%  INODE%"
+	if s.Snapshot.OS == "windows" {
+		header = "MOUNT                       USED      TOTAL       FREE    USE%  TYPE"
+	}
 	if in.W < 70 {
 		header = "MOUNT          USED      FREE   USE%"
 	}
@@ -662,7 +701,11 @@ func (s *State) diskFull(screen *Screen, r Rect) {
 	for i := offset; i < len(s.Snapshot.Slow.Filesystems) && i-offset < in.H-2; i++ {
 		fs := s.Snapshot.Slow.Filesystems[i]
 		p := monitor.Percent(fs.Used, fs.Used+fs.Available)
-		line := fmt.Sprintf("%s %9s %9s %9s %6.1f %7s", pad(fs.Mount, 23), shortBytes(float64(fs.Used)), shortBytes(float64(fs.Total)), shortBytes(float64(fs.Available)), p, s.metric("inodes", "%.1f", fs.InodeUsed))
+		detail := s.metric("inodes", "%.1f", fs.InodeUsed)
+		if s.Snapshot.OS == "windows" {
+			detail = fs.Type
+		}
+		line := fmt.Sprintf("%s %9s %9s %9s %6.1f %7s", pad(fs.Mount, 23), shortBytes(float64(fs.Used)), shortBytes(float64(fs.Total)), shortBytes(float64(fs.Available)), p, detail)
 		if in.W < 70 {
 			line = fmt.Sprintf("%s %8s %8s %6.1f", pad(fs.Mount, 10), shortBytes(float64(fs.Used)), shortBytes(float64(fs.Available)), p)
 		}
@@ -710,6 +753,18 @@ func (s *State) processPanel(screen *Screen, r Rect) {
 	if showIO {
 		header = "    PID USER      NI  S   CPU%    MEM   READ/s  WRITE/s   THR  COMMAND"
 	}
+	if s.Snapshot.OS == "windows" {
+		header = "    PID   CPU%    MEM    COMMAND"
+		if medium {
+			header = "    PID USER        CPU%    MEM   MEM%  COMMAND"
+		}
+		if wide {
+			header = "    PID USER      PRI   CPU%    MEM   MEM%   THR    TIME+  COMMAND"
+		}
+		if showIO {
+			header = "    PID USER      PRI   CPU%    MEM   READ/s  WRITE/s   THR  COMMAND"
+		}
+	}
 	screen.Text(in.X, in.Y, in.W, pad(header, in.W), Table)
 	if len(s.Rows) == 0 && in.H > 1 {
 		screen.Text(in.X, in.Y+1, in.W, "No matching processes. Esc clears the search.", Muted)
@@ -737,6 +792,23 @@ func (s *State) processPanel(screen *Screen, r Rect) {
 				write = shortBytes(p.WriteRate)
 			}
 			prefix = fmt.Sprintf("%7d %s %3s  %s %6s %6s %8s %8s %5s  ", p.PID, pad(p.User, 9), s.metric("process_nice", "%d", p.Nice), p.State, cpu, rss, read, write, threads)
+		}
+		if s.Snapshot.OS == "windows" {
+			priority := processMetric(p, "priority", "%d", p.Priority)
+			prefix = fmt.Sprintf("%7d %6s %6s  ", p.PID, cpu, rss)
+			if medium {
+				prefix = fmt.Sprintf("%7d %s %6s %6s %6s  ", p.PID, pad(p.User, 9), cpu, rss, memPercent)
+			}
+			if wide {
+				prefix = fmt.Sprintf("%7d %s %3s %6s %6s %6s %5s %8s  ", p.PID, pad(p.User, 9), priority, cpu, rss, memPercent, threads, cpuTime)
+			}
+			if showIO {
+				read, write := "-", "-"
+				if p.IOAvailable {
+					read, write = shortBytes(p.ReadRate), shortBytes(p.WriteRate)
+				}
+				prefix = fmt.Sprintf("%7d %s %3s %6s %6s %8s %8s %5s  ", p.PID, pad(p.User, 9), priority, cpu, rss, read, write, threads)
+			}
 		}
 		cmd := p.Command
 		if !s.FullCommand {
@@ -839,6 +911,7 @@ func (s *State) details(screen *Screen) {
 	}
 	if s.Snapshot.OS == "windows" {
 		lines[0] = fmt.Sprintf("PID %d / parent %d / user %s", p.PID, p.PPID, p.User)
+		lines[1] = "Windows base priority: " + processMetric(p, "priority", "%d", p.Priority)
 	}
 	if s.Snapshot.OS == "darwin" {
 		lines[1] = fmt.Sprintf("State %s / nice %d / priority %d", p.State, p.Nice, p.Priority)
