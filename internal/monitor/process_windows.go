@@ -58,6 +58,13 @@ func (c *Collector) collectProcesses(now time.Time, withIO bool) ([]Process, err
 		} else {
 			p.Unavailable = append(p.Unavailable, "threads")
 		}
+		// gopsutil maps Windows priority classes to Win32_Process base priorities.
+		// This is not a Unix nice value.
+		if priority, e := native.Nice(); e == nil {
+			p.Priority = int(priority)
+		} else {
+			p.Unavailable = append(p.Unavailable, "priority")
+		}
 		if withIO {
 			if io, e := native.IOCounters(); e == nil {
 				p.readBytes, p.writeBytes, p.IOAvailable = io.ReadBytes, io.WriteBytes, true

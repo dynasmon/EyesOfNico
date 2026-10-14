@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ type Collector struct {
 	cpus                map[string]cpuTicks
 	networks            map[string]Network
 	disks               map[string]disk.IOCountersStat
+	platform            platformState
 	processes           map[int]Process
 	users               map[uint32]string
 	slow                Slow
@@ -74,7 +76,7 @@ func (c *Collector) Sample(processIO bool) (Snapshot, error) {
 		Unavailable: []string{"psi", "cpu_iowait", "cpu_steal", "context_switches", "forks", "disk_busy", "disk_queue", "disk_size", "disk_in_flight", "sensors",
 			"memory_cache", "memory_buffers", "memory_slab", "memory_dirty", "process_processor"}}
 	if runtime.GOOS == "windows" {
-		s.Unavailable = append(s.Unavailable, "disk_await", "process_state", "process_nice", "process_priority", "inodes")
+		s.Unavailable = append(s.Unavailable, "disk_await", "process_state", "process_nice", "inodes")
 	}
 	if !c.last.IsZero() {
 		s.Interval = start.Sub(c.last).Seconds()
@@ -134,6 +136,11 @@ func (c *Collector) Sample(processIO bool) (Snapshot, error) {
 	s.Disks, err = c.collectDisks(s.Interval)
 	if err != nil {
 		s.Warnings = append(s.Warnings, "disk counters: "+err.Error())
+	}
+	if runtime.GOOS == "windows" && len(s.Disks) > 0 {
+		s.Unavailable = slices.DeleteFunc(s.Unavailable, func(name string) bool {
+			return name == "disk_busy" || name == "disk_await" || name == "disk_in_flight"
+		})
 	}
 	s.Processes, err = c.collectProcesses(start, processIO)
 	if err != nil {
@@ -235,26 +242,4 @@ func portableDisk(cur, old disk.IOCountersStat, elapsed float64, ready bool) Dis
 		}
 	}
 	return d
-}
-
-func (c *Collector) collectDisks(elapsed float64) ([]Disk, error) {
-	counters, err := disk.IOCounters()
-	if err != nil {
-		c.disks = make(map[string]disk.IOCountersStat)
-		return nil, err
-	}
-	result := make([]Disk, 0, len(counters))
-	for name, cur := range counters {
-		cur.Name = name
-		old, ok := c.disks[name]
-		d := portableDisk(cur, old, elapsed, ok)
-		if runtime.GOOS == "windows" {
-			// This backend does not expose sufficiently precise latency counters.
-			d.Await = 0
-		}
-		result = append(result, d)
-	}
-	c.disks = counters
-	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
-	return result, nil
 }

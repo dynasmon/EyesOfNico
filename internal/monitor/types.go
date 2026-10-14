@@ -20,16 +20,31 @@ type CPU struct {
 }
 
 type Memory struct {
-	Darwin    *DarwinMemory `json:"darwin,omitempty"`
-	Total     uint64        `json:"total_bytes"`
-	Available uint64        `json:"available_bytes"`
-	Used      uint64        `json:"used_bytes"`
-	Cached    uint64        `json:"cached_bytes"`
-	Buffers   uint64        `json:"buffers_bytes"`
-	Slab      uint64        `json:"slab_bytes"`
-	Dirty     uint64        `json:"dirty_bytes"`
-	SwapTotal uint64        `json:"swap_total_bytes"`
-	SwapUsed  uint64        `json:"swap_used_bytes"`
+	Darwin    *DarwinMemory  `json:"darwin,omitempty"`
+	Windows   *WindowsMemory `json:"windows,omitempty"`
+	Total     uint64         `json:"total_bytes"`
+	Available uint64         `json:"available_bytes"`
+	Used      uint64         `json:"used_bytes"`
+	Cached    uint64         `json:"cached_bytes"`
+	Buffers   uint64         `json:"buffers_bytes"`
+	Slab      uint64         `json:"slab_bytes"`
+	Dirty     uint64         `json:"dirty_bytes"`
+	SwapTotal uint64         `json:"swap_total_bytes"`
+	SwapUsed  uint64         `json:"swap_used_bytes"`
+}
+
+// WindowsMemory uses native Windows accounting, not Linux slab or PSI.
+// Commit is virtual memory backed by RAM or page files, not page-file usage.
+type WindowsMemory struct {
+	Available      bool   `json:"available"`
+	CommitTotal    uint64 `json:"commit_total_bytes"`
+	CommitLimit    uint64 `json:"commit_limit_bytes"`
+	CommitPeak     uint64 `json:"commit_peak_bytes"`
+	KernelPaged    uint64 `json:"kernel_paged_bytes"`
+	KernelNonpaged uint64 `json:"kernel_nonpaged_bytes"`
+	Handles        uint32 `json:"handles"`
+	Processes      uint32 `json:"processes"`
+	Threads        uint32 `json:"threads"`
 }
 
 // DarwinMemory contains macOS VM categories; these are not Linux slab/buffers
@@ -142,6 +157,7 @@ type Filesystem struct {
 type Sensor struct {
 	Name    string  `json:"name"`
 	Celsius float64 `json:"celsius"`
+	Source  string  `json:"source,omitempty"`
 }
 
 // Slow metrics are collected by one bounded worker, never by the UI goroutine.
@@ -149,6 +165,7 @@ type Slow struct {
 	At           time.Time         `json:"at"`
 	Filesystems  []Filesystem      `json:"filesystems"`
 	Sensors      []Sensor          `json:"sensors"`
+	SensorStatus string            `json:"sensor_status,omitempty"`
 	FrequencyMHz float64           `json:"frequency_mhz"`
 	NetworkState map[string]string `json:"network_state"`
 	Warnings     []string          `json:"warnings,omitempty"`

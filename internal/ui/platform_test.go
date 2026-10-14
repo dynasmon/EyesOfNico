@@ -97,3 +97,50 @@ func TestDarwinPanelsUseNativeMetrics(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsPanelsUseNativeMetrics(t *testing.T) {
+	s := demoState()
+	s.Snapshot.OS = "windows"
+	s.Snapshot.Unavailable = []string{"load", "psi", "cpu_iowait", "cpu_steal", "context_switches", "forks", "memory_buffers", "memory_slab", "memory_dirty", "disk_queue", "process_state", "process_nice", "process_processor", "inodes"}
+	s.Snapshot.Memory.Cached = 3 << 30
+	s.Snapshot.Memory.Windows = &monitor.WindowsMemory{Available: true, CommitTotal: 4 << 30, CommitLimit: 16 << 30, KernelPaged: 256 << 20, KernelNonpaged: 128 << 20, Processes: 120, Threads: 1500, Handles: 50000}
+	s.Snapshot.Slow.At = time.Now()
+	s.Snapshot.Slow.SensorStatus = "LibreHardwareMonitor / 5s cache"
+	s.Snapshot.Slow.Sensors = []monitor.Sensor{{Name: "Very long CPU name / Package", Celsius: 42.5, Source: "LibreHardwareMonitor"}}
+	for _, size := range [][2]int{{40, 12}, {80, 24}, {120, 40}} {
+		for view := 0; view < 6; view++ {
+			s.View = view
+			screen := NewScreen(size[0], size[1], true)
+			s.Draw(screen)
+			text := screen.Plain()
+			for _, forbidden := range []string{"n/a", "PRESSURE / PSI", "INODE%", "Load ", "wait ", "steal ", "forks ", "blocked"} {
+				if strings.Contains(text, forbidden) {
+					t.Fatalf("Windows view %d at %v has %q:\n%s", view, size, forbidden, text)
+				}
+			}
+			if size[0] >= 80 && view == 1 {
+				for _, want := range []string{"WINDOWS / TEMPERATURE", "Committed", "42.5 C", "1500 threads"} {
+					if !strings.Contains(text, want) {
+						t.Fatalf("missing %q:\n%s", want, text)
+					}
+				}
+			}
+			if size[0] == 120 && view == 4 && !strings.Contains(text, "QUEUED") {
+				t.Fatal("Windows queue must be labeled as an instantaneous count")
+			}
+		}
+	}
+	s.View = 1
+	s.Snapshot.Slow.Sensors = nil
+	screen := NewScreen(120, 40, true)
+	s.Draw(screen)
+	if !strings.Contains(screen.Plain(), "port 8085") {
+		t.Fatal("missing actionable sensor setup instructions")
+	}
+	s.Snapshot.Slow.Sensors = []monitor.Sensor{{Name: "Old reading", Celsius: 42.5}}
+	s.Snapshot.Slow.At = time.Now().Add(-time.Minute)
+	s.Draw(screen)
+	if strings.Contains(screen.Plain(), "42.5 C") || !strings.Contains(screen.Plain(), "stale") {
+		t.Fatal("stale temperature displayed as current")
+	}
+}
